@@ -436,7 +436,7 @@ class BentoClient {
       '/^batch\/(events|emails|subscribers)$/',
       '/^fetch\/commands$/',
       '/^experimental\/validation$/',
-      '/^subscribers\/[a-zA-Z0-9@._-]+$/',
+      '/^subscribers\/[a-zA-Z0-9%._-]+$/', // Allow URL-encoded characters
       '/^events\/[a-zA-Z0-9_-]+$/',
     ];
 
