@@ -18,6 +18,7 @@ use Drupal\Core\Extension\ModuleHandlerInterface;
  * authentication, error handling, and response processing.
  */
 class BentoClient {
+  use BentoSanitizationTrait;
 
   /**
    * The Bento API base URL.
