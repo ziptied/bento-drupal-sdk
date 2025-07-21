@@ -1,0 +1,29 @@
+# Permissions for Bento SDK module.
+
+# Legacy permission for backwards compatibility
+administer bento sdk:
+  title: 'Administer Bento SDK (Full Access)'
+  description: 'Full administrative access to all Bento SDK settings and credentials'
+  restrict access: true
+
+# Granular permissions for better security
+view bento sdk settings:
+  title: 'View Bento SDK Settings'
+  description: 'View Bento SDK configuration without modification rights'
+
+edit bento sdk credentials:
+  title: 'Edit Bento SDK Credentials'
+  description: 'Modify API credentials (site UUID, publishable key, secret key)'
+  restrict access: true
+
+edit bento sdk mail settings:
+  title: 'Edit Bento SDK Mail Settings'
+  description: 'Configure mail routing and sender settings'
+
+edit bento sdk validation settings:
+  title: 'Edit Bento SDK Validation Settings'
+  description: 'Configure email validation and cache settings'
+
+edit bento sdk performance settings:
+  title: 'Edit Bento SDK Performance Settings'
+  description: 'Configure rate limiting and circuit breaker settings'

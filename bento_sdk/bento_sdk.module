@@ -1,0 +1,29 @@
+<?php
+
+/**
+ * @file
+ * Contains bento_sdk.module.
+ *
+ * Provides Bento API integration for Drupal 10.
+ */
+
+use Drupal\Core\Routing\RouteMatchInterface;
+
+/**
+ * Implements hook_help().
+ *
+ * Provides help information for the Bento SDK module.
+ */
+function bento_sdk_help($route_name, RouteMatchInterface $route_match) {
+  switch ($route_name) {
+    case 'help.page.bento_sdk':
+      $output = '';
+      $output .= '<h3>' . t('About') . '</h3>';
+      $output .= '<p>' . t('The Bento SDK module provides integration with the Bento API for email marketing and customer engagement.') . '</p>';
+      $output .= '<h3>' . t('Configuration') . '</h3>';
+      $output .= '<p>' . t('Configure your Bento API credentials at <a href=":url">Administration » Configuration » Bento » Settings</a>.', [':url' => '/admin/config/bento/settings']) . '</p>';
+      return $output;
+
+    default:
+  }
+}

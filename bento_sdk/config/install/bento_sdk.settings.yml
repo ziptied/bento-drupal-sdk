@@ -1,0 +1,22 @@
+# Default configuration for Bento SDK module.
+# Note: secret_key is no longer stored in configuration for security.
+# Use BENTO_SECRET_KEY environment variable or configure via admin form.
+site_uuid: ''
+publishable_key: ''
+enable_mail_routing: false
+default_sender_email: ''
+enable_email_validation: false
+email_validation_cache_valid_duration: 86400
+email_validation_cache_invalid_duration: 3600
+# Rate limiting settings
+enable_rate_limiting: true
+max_requests_per_minute: 60
+max_requests_per_hour: 1000
+enable_circuit_breaker: true
+circuit_breaker_failure_threshold: 5
+circuit_breaker_timeout: 300
+# Security settings
+ssl_verification: true
+request_timeout: 30
+connection_timeout: 10
+enable_request_id_tracking: true

@@ -1,0 +1,9 @@
+# Routing configuration for Bento SDK module.
+
+bento_sdk.settings:
+  path: '/admin/config/bento/settings'
+  defaults:
+    _form: '\Drupal\bento_sdk\Form\BentoSettingsForm'
+    _title: 'Bento SDK Settings'
+  requirements:
+    _custom_access: '\Drupal\bento_sdk\Form\BentoSettingsForm::access'
