@@ -20,16 +20,18 @@ trait BentoSanitizationTrait {
     $patterns = [
       // Remove anything that looks like a UUID.
       '/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i' => '[UUID]',
-      // Remove anything that looks like an API key.
-      '/[a-zA-Z0-9]{20,}/' => '[API_KEY]',
+      // Remove anything that looks like an API key (common formats).
+      '/\b(?:sk|pk|api[_-]?key|token|secret)[_-]?[a-zA-Z0-9]{16,}\b/i' => '[API_KEY]',
+      // Remove base64-like strings that might be keys.
+      '/\b[a-zA-Z0-9+\/]{40,}={0,2}\b/' => '[API_KEY]',
       // Remove email addresses.
-      '/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}/' => '[EMAIL]',
+      '/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/' => '[EMAIL]',
       // Remove file paths.
-      '/\\/[a-zA-Z0-9._\\/-]+/' => '[PATH]',
+      '/\/[a-zA-Z0-9._\/-]+/' => '[PATH]',
       // Remove URLs.
-      '/https?:\\/\\/[^\\s]+/' => '[URL]',
+      '/https?:\/\/[^\s]+/' => '[URL]',
       // Remove IP addresses.
-      '/\\b(?:[0-9]{1,3}\\.){3}[0-9]{1,3}\\b/' => '[IP]',
+      '/\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}\b/' => '[IP]',
     ];
 
     $sanitized = $message;
