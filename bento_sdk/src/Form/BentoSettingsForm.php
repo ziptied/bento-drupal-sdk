@@ -405,10 +405,10 @@ class BentoSettingsForm extends ConfigFormBase {
     }
 
     // Additional validation for credential changes.
-    $this->validateCredentialChanges($form, $form_state);
+    $this->validateCredentialChanges($form_state);
 
     // Validate security settings.
-    $this->validateSecuritySettings($form, $form_state);
+    $this->validateSecuritySettings($form_state);
 
     // Validate default sender email if mail routing is enabled.
     $enable_mail_routing = $form_state->getValue('enable_mail_routing');
@@ -681,12 +681,10 @@ class BentoSettingsForm extends ConfigFormBase {
   /**
    * Validates credential changes for additional security.
    *
-   * @param array $form
-   *   The form array.
    * @param \Drupal\Core\Form\FormStateInterface $form_state
    *   The form state.
    */
-  private function validateCredentialChanges(array &$form, FormStateInterface $form_state): void {
+  private function validateCredentialChanges(FormStateInterface $form_state): void {
     if (!$this->hasCredentialEditAccess()) {
       return;
     }
@@ -722,12 +720,10 @@ class BentoSettingsForm extends ConfigFormBase {
   /**
    * Validates security settings for potential issues.
    *
-   * @param array $form
-   *   The form array.
    * @param \Drupal\Core\Form\FormStateInterface $form_state
    *   The form state.
    */
-  private function validateSecuritySettings(array &$form, FormStateInterface $form_state): void {
+  private function validateSecuritySettings(FormStateInterface $form_state): void {
     if (!$this->hasPerformanceEditAccess()) {
       return;
     }
