@@ -8,6 +8,8 @@ use GuzzleHttp\Exception\ConnectException;
 use Psr\Log\LoggerInterface;
 use Drupal\Core\Cache\CacheBackendInterface;
 use Drupal\Core\Config\ConfigFactoryInterface;
+use Drupal\bento_sdk\BentoSanitizationTrait;
+use Drupal\Core\Extension\ModuleHandlerInterface;
 
 /**
  * HTTP client for communicating with the Bento API.
@@ -92,6 +94,20 @@ class BentoClient {
   private ConfigFactoryInterface $configFactory;
 
   /**
+   * The Drupal version.
+   *
+   * @var string
+   */
+  private string $drupalVersion;
+
+  /**
+   * The module handler service.
+   *
+   * @var \Drupal\Core\Extension\ModuleHandlerInterface
+   */
+  private ModuleHandlerInterface $moduleHandler;
+
+  /**
    * Constructs a new BentoClient.
    *
    * @param \GuzzleHttp\ClientInterface $http_client
@@ -102,12 +118,18 @@ class BentoClient {
    *   The cache backend.
    * @param \Drupal\Core\Config\ConfigFactoryInterface $config_factory
    *   The configuration factory.
+   * @param string $drupal_version
+   *   The Drupal version.
+   * @param \Drupal\Core\Extension\ModuleHandlerInterface $module_handler
+   *   The module handler service.
    */
-  public function __construct(ClientInterface $http_client, LoggerInterface $logger, CacheBackendInterface $cache, ConfigFactoryInterface $config_factory) {
+  public function __construct(ClientInterface $http_client, LoggerInterface $logger, CacheBackendInterface $cache, ConfigFactoryInterface $config_factory, string $drupal_version, ModuleHandlerInterface $module_handler) {
     $this->httpClient = $http_client;
     $this->logger = $logger;
     $this->cache = $cache;
     $this->configFactory = $config_factory;
+    $this->drupalVersion = $drupal_version;
+    $this->moduleHandler = $module_handler;
   }
 
   /**
@@ -146,7 +168,7 @@ class BentoClient {
    *   When the request fails or credentials are not set.
    */
   public function get(string $endpoint, array $params = []): array {
-    $this->validateCredentials();
+    $this->areCredentialsSet();
     
     // Validate and sanitize endpoint.
     $endpoint = $this->validateAndSanitizeEndpoint($endpoint);
@@ -184,7 +206,7 @@ class BentoClient {
    *   When the request fails or credentials are not set.
    */
   public function post(string $endpoint, array $data = []): array {
-    $this->validateCredentials();
+    $this->areCredentialsSet();
     
     // Validate and sanitize endpoint.
     $endpoint = $this->validateAndSanitizeEndpoint($endpoint);
@@ -309,7 +331,7 @@ class BentoClient {
    * @throws \Exception
    *   When credentials are not properly configured.
    */
-  private function validateCredentials(): void {
+  private function areCredentialsSet(): void {
     if (empty($this->siteUuid)) {
       throw new \Exception('Bento site UUID is not configured');
     }
@@ -601,69 +623,6 @@ class BentoClient {
   }
 
   /**
-   * Sanitizes error messages to prevent information disclosure.
-   *
-   * @param string $message
-   *   The original error message.
-   *
-   * @return string
-   *   The sanitized error message.
-   */
-  private function sanitizeErrorMessage(string $message): string {
-    // Remove potential credentials from error messages.
-    $patterns = [
-      // Remove anything that looks like a UUID.
-      '/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i' => '[UUID]',
-      // Remove anything that looks like an API key.
-      '/[a-zA-Z0-9]{20,}/' => '[API_KEY]',
-      // Remove email addresses.
-      '/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/' => '[EMAIL]',
-      // Remove file paths.
-      '/\/[a-zA-Z0-9._\/-]+/' => '[PATH]',
-      // Remove URLs.
-      '/https?:\/\/[^\s]+/' => '[URL]',
-    ];
-
-    $sanitized = $message;
-    foreach ($patterns as $pattern => $replacement) {
-      $sanitized = preg_replace($pattern, $replacement, $sanitized);
-    }
-
-    // Limit message length to prevent log flooding.
-    if (strlen($sanitized) > 500) {
-      $sanitized = substr($sanitized, 0, 497) . '...';
-    }
-
-    return $sanitized;
-  }
-
-  /**
-   * Sanitizes endpoint for logging to prevent information disclosure.
-   *
-   * @param string $endpoint
-   *   The original endpoint.
-   *
-   * @return string
-   *   The sanitized endpoint.
-   */
-  private function sanitizeEndpointForLogging(string $endpoint): string {
-    // Replace any potential sensitive data in endpoints.
-    $patterns = [
-      // Replace email addresses in endpoints.
-      '/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/' => '[EMAIL]',
-      // Replace UUIDs in endpoints.
-      '/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i' => '[UUID]',
-    ];
-
-    $sanitized = $endpoint;
-    foreach ($patterns as $pattern => $replacement) {
-      $sanitized = preg_replace($pattern, $replacement, $sanitized);
-    }
-
-    return $sanitized;
-  }
-
-  /**
    * Checks rate limits before making API requests.
    *
    * @throws \Exception
@@ -866,7 +825,7 @@ class BentoClient {
    */
   private function buildUserAgent(): string {
     $module_version = $this->getModuleVersion();
-    $drupal_version = \Drupal::VERSION;
+    $drupal_version = $this->drupalVersion;
     $php_version = PHP_VERSION;
     
     return "Drupal-Bento-SDK/{$module_version} (Drupal/{$drupal_version}; PHP/{$php_version})";
@@ -880,8 +839,7 @@ class BentoClient {
    */
   private function getModuleVersion(): string {
     try {
-      $module_handler = \Drupal::service('module_handler');
-      $module_info = $module_handler->getModule('bento_sdk');
+      $module_info = $this->moduleHandler->getModule('bento_sdk');
       return $module_info->info['version'] ?? '1.0.0';
     }
     catch (\Exception $e) {

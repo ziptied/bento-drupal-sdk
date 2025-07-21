@@ -709,13 +709,6 @@ class BentoSettingsForm extends ConfigFormBase {
         return;
       }
 
-      // Additional CSRF-like validation: check for form token.
-      $form_token = $form_state->getValue('form_token');
-      if (empty($form_token)) {
-        $form_state->setErrorByName('api_credentials', $this->t('Security validation failed. Please try again.'));
-        return;
-      }
-
       // Log the credential change attempt.
       $this->logger->info('Credential change attempt by user @username (ID: @uid)', [
         '@username' => $this->currentUser->getAccountName(),
