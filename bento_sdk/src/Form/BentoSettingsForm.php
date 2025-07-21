@@ -8,6 +8,7 @@ use Drupal\Core\State\StateInterface;
 use Drupal\Core\Session\AccountInterface;
 use Drupal\Core\Access\AccessResult;
 use Psr\Log\LoggerInterface;
+use Drupal\bento_sdk\BentoSanitizationTrait;
 
 /**
  * Configuration form for Bento SDK settings.
@@ -16,6 +17,7 @@ use Psr\Log\LoggerInterface;
  * and other module settings.
  */
 class BentoSettingsForm extends ConfigFormBase {
+  use BentoSanitizationTrait;
 
   /**
    * The state service.
@@ -659,7 +661,7 @@ class BentoSettingsForm extends ConfigFormBase {
     $this->logger->notice('Bento SDK configuration updated by user @username (ID: @uid, Email: @email). Changed fields: @changes', [
       '@username' => $username,
       '@uid' => $user_id,
-      '@email' => $user_email ?: 'N/A',
+      '@email' => $user_email ? $this->sanitizeEmailForLogging($user_email) : 'N/A',
       '@changes' => implode(', ', $changes),
     ]);
 
