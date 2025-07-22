@@ -5,3 +5,4 @@ core_version_requirement: '>=10'
 package: 'Bento'
 dependencies:
   - drupal:system
+  - webform:webform

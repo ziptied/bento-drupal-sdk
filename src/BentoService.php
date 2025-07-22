@@ -1404,4 +1404,143 @@ class BentoService {
     }
   }
 
+  /**
+   * Process a webform submission and send to Bento.
+   *
+   * Extracts form data from the webform submission and creates a Bento event.
+   * This method handles email validation, field mapping, and error handling.
+   *
+   * @param \Drupal\webform\WebformSubmissionInterface $submission
+   *   The webform submission object.
+   *
+   * @return bool
+   *   TRUE if the event was processed successfully, FALSE otherwise.
+   */
+  public function processWebformSubmission($submission): bool {
+    try {
+      // Extract form data from submission
+      $form_data = $submission->getData();
+      $webform_id = $submission->getWebform()->id();
+      
+      // Map webform data to Bento event format
+      $event_data = $this->mapWebformDataToEvent($form_data, $webform_id);
+      
+      if (!$event_data) {
+        $this->logger->warning('Webform submission skipped - no valid email found in webform @webform_id', [
+          '@webform_id' => $webform_id,
+        ]);
+        return FALSE;
+      }
+      
+      // Send event to Bento
+      $success = $this->sendEvent($event_data);
+      
+      if ($success) {
+        $this->logger->info('Webform submission processed successfully for webform @webform_id', [
+          '@webform_id' => $webform_id,
+        ]);
+      }
+      
+      return $success;
+    }
+    catch (\Exception $e) {
+      $this->logger->error('Failed to process webform submission: @message', [
+        '@message' => $this->sanitizeErrorMessage($e->getMessage()),
+      ]);
+      return FALSE;
+    }
+  }
+
+  /**
+   * Map webform data to Bento event format.
+   *
+   * Extracts email, first_name, last_name and other form data to create
+   * a properly formatted Bento event. Email is required for processing.
+   *
+   * @param array $form_data
+   *   The form data from the webform submission.
+   * @param string $webform_id
+   *   The webform ID for tracking purposes.
+   *
+   * @return array|null
+   *   Formatted event data or NULL if no valid email found.
+   */
+  private function mapWebformDataToEvent(array $form_data, string $webform_id): ?array {
+    // Extract email (required)
+    $email = $this->extractEmail($form_data);
+    if (!$email) {
+      return NULL;
+    }
+    
+    // Start building the event
+    $event = [
+      'type' => '$webform_submission',
+      'email' => $email,
+    ];
+    
+    // Extract known fields for Bento subscriber fields
+    $fields = [];
+    if (isset($form_data['first_name']) && !empty($form_data['first_name'])) {
+      $fields['first_name'] = $form_data['first_name'];
+    }
+    if (isset($form_data['last_name']) && !empty($form_data['last_name'])) {
+      $fields['last_name'] = $form_data['last_name'];
+    }
+    
+    if (!empty($fields)) {
+      $event['fields'] = $fields;
+    }
+    
+    // Map remaining data to event details
+    $details = [
+      'webform_id' => $webform_id,
+    ];
+    
+    $form_data_details = [];
+    foreach ($form_data as $key => $value) {
+      // Skip email and name fields as they're handled above
+      if (!in_array($key, ['email', 'mail', 'email_address', 'user_email', 'first_name', 'last_name'])) {
+        $form_data_details[$key] = $value;
+      }
+    }
+    
+    if (!empty($form_data_details)) {
+      $details['form_data'] = $form_data_details;
+    }
+    
+    $event['details'] = $details;
+    
+    return $event;
+  }
+
+  /**
+   * Extract email from form data, checking common field names.
+   *
+   * Searches for email in common field names and validates the format
+   * before returning. This ensures we have a valid email for Bento events.
+   *
+   * @param array $form_data
+   *   The form data to search for email fields.
+   *
+   * @return string|null
+   *   Valid email address or NULL if none found.
+   */
+  private function extractEmail(array $form_data): ?string {
+    // Common email field names in webforms
+    $email_fields = ['email', 'mail', 'email_address', 'user_email'];
+    
+    foreach ($email_fields as $field) {
+      if (isset($form_data[$field]) && !empty($form_data[$field])) {
+        $email = trim($form_data[$field]);
+        
+        // Validate email format
+        if (filter_var($email, FILTER_VALIDATE_EMAIL)) {
+          return $email;
+        }
+      }
+    }
+    
+    return NULL;
+  }
+
 }

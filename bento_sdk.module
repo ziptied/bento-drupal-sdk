@@ -8,6 +8,7 @@
  */
 
 use Drupal\Core\Routing\RouteMatchInterface;
+use Drupal\webform\WebformSubmissionInterface;
 
 /**
  * Implements hook_help().
@@ -41,6 +42,39 @@ function bento_sdk_cron() {
   }
   catch (\Exception $e) {
     \Drupal::logger('bento_sdk')->error('Failed to process scheduled retries during cron: @message', [
+      '@message' => $e->getMessage(),
+    ]);
+  }
+}
+
+/**
+ * Implements hook_webform_submission_insert().
+ *
+ * Captures webform submissions and sends them to Bento as events.
+ * This hook fires after a webform submission has been saved to the database.
+ */
+function bento_sdk_webform_submission_insert(WebformSubmissionInterface $webform_submission) {
+  // Check if webform module is available
+  if (!\Drupal::moduleHandler()->moduleExists('webform')) {
+    return;
+  }
+
+  try {
+    // Get the Bento service
+    $bento_service = \Drupal::service('bento.sdk');
+    
+    // Only process if Bento SDK is properly configured
+    if (!$bento_service->isConfigured()) {
+      \Drupal::logger('bento_sdk')->info('Webform submission skipped - Bento SDK not configured');
+      return;
+    }
+    
+    // Process the webform submission
+    $bento_service->processWebformSubmission($webform_submission);
+  }
+  catch (\Exception $e) {
+    // Log error but don't break the form submission process
+    \Drupal::logger('bento_sdk')->error('Failed to process webform submission for Bento: @message', [
       '@message' => $e->getMessage(),
     ]);
   }
