@@ -206,18 +206,7 @@ class BentoSettingsForm extends ConfigFormBase {
       '#disabled' => !$can_edit_mail,
     ];
 
-    $form['mail_settings']['default_sender_email'] = [
-      '#type' => 'email',
-      '#title' => $this->t('Default sender email'),
-      '#description' => $this->t('Default email address to use as sender when not specified. Used for transactional emails.'),
-      '#default_value' => $config->get('default_sender_email'),
-      '#disabled' => !$can_edit_mail,
-      '#states' => [
-        'visible' => [
-          ':input[name="enable_mail_routing"]' => ['checked' => TRUE],
-        ],
-      ],
-    ];
+
 
     // Add author dropdown field
     $form['mail_settings']['default_author_email'] = [
@@ -478,12 +467,12 @@ class BentoSettingsForm extends ConfigFormBase {
     // Validate security settings.
     $this->validateSecuritySettings($form_state);
 
-    // Validate default sender email if mail routing is enabled.
+    // Validate default author email if mail routing is enabled.
     $enable_mail_routing = $form_state->getValue('enable_mail_routing');
-    $default_sender_email = $form_state->getValue('default_sender_email');
+    $default_author_email = $form_state->getValue('default_author_email');
     
-    if ($enable_mail_routing && empty($default_sender_email)) {
-      $form_state->setErrorByName('default_sender_email', $this->t('Default sender email is required when mail routing is enabled.'));
+    if ($enable_mail_routing && empty($default_author_email)) {
+      $form_state->setErrorByName('default_author_email', $this->t('Default author email is required when mail routing is enabled.'));
     }
 
     // Clear author selection if credentials changed.
@@ -574,12 +563,7 @@ class BentoSettingsForm extends ConfigFormBase {
         $config->set('enable_mail_routing', $new_mail_routing);
       }
 
-      $old_sender_email = $config->get('default_sender_email');
-      $new_sender_email = $form_state->getValue('default_sender_email');
-      if ($old_sender_email !== $new_sender_email) {
-        $changes[] = 'default_sender_email';
-        $config->set('default_sender_email', $new_sender_email);
-      }
+
 
       // Track author setting changes.
       $old_author_email = $config->get('default_author_email');

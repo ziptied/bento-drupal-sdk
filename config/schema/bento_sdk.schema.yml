@@ -20,9 +20,7 @@ bento_sdk.settings:
     enable_mail_routing:
       type: boolean
       label: 'Enable mail routing through Bento'
-    default_sender_email:
-      type: email
-      label: 'Default sender email address'
+
     default_author_email:
       type: string
       label: 'Default author email'

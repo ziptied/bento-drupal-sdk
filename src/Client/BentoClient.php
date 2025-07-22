@@ -99,7 +99,7 @@ class BentoClient {
    *
    * @var string
    */
-  private string $drupalVersion;
+  private string $drupalVersion = '';
 
   /**
    * The module handler service.
@@ -124,13 +124,13 @@ class BentoClient {
    * @param \Drupal\Core\Extension\ModuleHandlerInterface $module_handler
    *   The module handler service.
    */
-  public function __construct(ClientInterface $http_client, LoggerInterface $logger, CacheBackendInterface $cache, ConfigFactoryInterface $config_factory, string $drupal_version, ModuleHandlerInterface $module_handler) {
+  public function __construct(ClientInterface $http_client, LoggerInterface $logger, CacheBackendInterface $cache, ConfigFactoryInterface $config_factory, string $drupal_version = '', ?ModuleHandlerInterface $module_handler = NULL) {
     $this->httpClient = $http_client;
     $this->logger = $logger;
     $this->cache = $cache;
     $this->configFactory = $config_factory;
-    $this->drupalVersion = $drupal_version;
-    $this->moduleHandler = $module_handler;
+    $this->drupalVersion = $drupal_version ?: \Drupal::VERSION;
+    $this->moduleHandler = $module_handler ?: \Drupal::service('module_handler');
   }
 
   /**
@@ -242,13 +242,13 @@ class BentoClient {
   public function fetchAuthors(): array {
     $response = $this->get('fetch/authors');
     
-    // The API returns an array of author objects
+    // The API returns a data array with author objects containing attributes
     // Extract email addresses from the response
     $authors = [];
-    if (isset($response['authors']) && is_array($response['authors'])) {
-      foreach ($response['authors'] as $author) {
-        if (isset($author['email']) && filter_var($author['email'], FILTER_VALIDATE_EMAIL)) {
-          $authors[] = $author['email'];
+    if (isset($response['data']) && is_array($response['data'])) {
+      foreach ($response['data'] as $author) {
+        if (isset($author['attributes']['email']) && filter_var($author['attributes']['email'], FILTER_VALIDATE_EMAIL)) {
+          $authors[] = $author['attributes']['email'];
         }
       }
     }

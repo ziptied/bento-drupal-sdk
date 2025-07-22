@@ -612,7 +612,7 @@ class BentoService {
    *   - suggestions: (array) Suggested corrections if applicable
    *   - cached: (bool) Whether result was from cache
    */
-  public function validateEmail(string $email, string $name = NULL, string $ip = NULL): array {
+  public function validateEmail(string $email, ?string $name = NULL, ?string $ip = NULL): array {
     // Basic email format validation first.
     if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
       return [
@@ -931,17 +931,9 @@ class BentoService {
   public function getDefaultFromEmail(): string {
     $config = $this->configFactory->get('bento_sdk.settings');
     
-    // Priority order:
-    // 1. Selected author email
-    // 2. Default sender email
-    // 3. Fallback
-    
+    // Use the selected author email or fallback
     if (!empty($config->get('default_author_email'))) {
       return $config->get('default_author_email');
-    }
-    
-    if (!empty($config->get('default_sender_email'))) {
-      return $config->get('default_sender_email');
     }
     
     return 'noreply@example.com';
@@ -1051,7 +1043,7 @@ class BentoService {
    * @return string
    *   The cache key.
    */
-  private function getEmailValidationCacheKey(string $email, string $name = NULL, string $ip = NULL): string {
+  private function getEmailValidationCacheKey(string $email, ?string $name = NULL, ?string $ip = NULL): string {
     $key_parts = ['bento_email_validation', strtolower($email)];
     
     if ($name !== NULL) {
