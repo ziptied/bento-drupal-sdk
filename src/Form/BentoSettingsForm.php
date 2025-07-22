@@ -252,6 +252,83 @@ class BentoSettingsForm extends ConfigFormBase {
       ],
     ];
 
+    // Add visual separator
+    $form['mail_settings']['test_separator'] = [
+      '#type' => 'markup',
+      '#markup' => '<hr class="test-email-separator">',
+      '#weight' => 10,
+      '#states' => [
+        'visible' => [
+          ':input[name="enable_mail_routing"]' => ['checked' => TRUE],
+        ],
+      ],
+    ];
+
+    // Add CSS for test email section styling
+    $form['mail_settings']['test_email_css'] = [
+      '#type' => 'markup',
+      '#markup' => '<style>
+        .test-email-separator {
+          margin: 20px 0;
+          border: 0;
+          border-top: 1px solid #ccc;
+        }
+        .test-email-section {
+          background: #f8f9fa;
+          padding: 15px;
+          border-radius: 4px;
+          margin-top: 15px;
+        }
+        #test-email-messages {
+          margin-top: 10px;
+        }
+        #test-email-messages .messages {
+          margin: 10px 0;
+        }
+      </style>',
+      '#weight' => -1,
+    ];
+
+    // Add test email section
+    $form['mail_settings']['test_email_section'] = [
+      '#type' => 'fieldset',
+      '#title' => $this->t('Test Email Configuration'),
+      '#description' => $this->t('To test email delivery, ensure API credentials are configured and an author is selected.'),
+      '#weight' => 11,
+      '#states' => [
+        'visible' => [
+          ':input[name="enable_mail_routing"]' => ['checked' => TRUE],
+        ],
+      ],
+    ];
+
+    // Add test button
+    $form['mail_settings']['test_email_section']['send_test_email'] = [
+      '#type' => 'button',
+      '#value' => $this->t('Send Test Email'),
+      '#disabled' => !$this->canSendTestEmail(),
+      '#attributes' => [
+        'class' => ['button--primary'],
+      ],
+      '#ajax' => [
+        'callback' => '::sendTestEmailCallback',
+        'wrapper' => 'test-email-messages',
+        'method' => 'replace',
+        'effect' => 'fade',
+        'progress' => [
+          'type' => 'throbber',
+          'message' => $this->t('Sending test email...'),
+        ],
+      ],
+    ];
+
+    // Add messages wrapper
+    $form['mail_settings']['test_email_section']['test_messages'] = [
+      '#type' => 'markup',
+      '#markup' => '<div id="test-email-messages"></div>',
+      '#weight' => 1,
+    ];
+
     $form['validation_settings'] = [
       '#type' => 'fieldset',
       '#title' => $this->t('Email Validation Settings'),
@@ -674,6 +751,39 @@ class BentoSettingsForm extends ConfigFormBase {
   }
 
   /**
+   * Checks if test email can be sent.
+   *
+   * @return bool
+   *   TRUE if test email can be sent, FALSE otherwise.
+   */
+  private function canSendTestEmail(): bool {
+    // Check if user has permission
+    if (!$this->hasMailEditAccess()) {
+      return FALSE;
+    }
+
+    // Check if Bento is configured
+    if (!$this->isConfigured()) {
+      return FALSE;
+    }
+
+    // Check if an author is selected
+    $config = $this->config('bento_sdk.settings');
+    $selected_author = $config->get('default_author_email');
+    
+    if (empty($selected_author)) {
+      return FALSE;
+    }
+
+    // Validate the selected author email
+    if (!filter_var($selected_author, FILTER_VALIDATE_EMAIL)) {
+      return FALSE;
+    }
+
+    return TRUE;
+  }
+
+  /**
    * AJAX callback to refresh the authors dropdown.
    *
    * @param array $form
@@ -861,6 +971,33 @@ class BentoSettingsForm extends ConfigFormBase {
       $response->addCommand(new ReplaceCommand('#authors-dropdown-wrapper', \Drupal::service('renderer')->render($disabled_element)));
     }
 
+    return $response;
+  }
+
+  /**
+   * AJAX callback to send test email.
+   *
+   * @param array $form
+   *   The form array.
+   * @param \Drupal\Core\Form\FormStateInterface $form_state
+   *   The form state.
+   *
+   * @return \Drupal\Core\Ajax\AjaxResponse
+   *   The AJAX response.
+   */
+  public function sendTestEmailCallback(array &$form, FormStateInterface $form_state) {
+    $response = new AjaxResponse();
+    
+    // Placeholder implementation - will be completed in BEN-182
+    $response->addCommand(new MessageCommand($this->t('Test email functionality will be implemented in BEN-182.'), 'warning'));
+    
+    // Create empty messages wrapper
+    $messages_element = [
+      '#type' => 'markup',
+      '#markup' => '<div id="test-email-messages"></div>',
+    ];
+    $response->addCommand(new ReplaceCommand('#test-email-messages', \Drupal::service('renderer')->render($messages_element)));
+    
     return $response;
   }
 
