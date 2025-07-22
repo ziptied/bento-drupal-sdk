@@ -2,7 +2,7 @@
 services:
   bento.sdk:
     class: Drupal\bento_sdk\BentoService
-    arguments: ['@bento_sdk.client', '@config.factory', '@logger.channel.bento_sdk', '@cache.default', '@state']
+    arguments: ['@bento_sdk.client', '@config.factory', '@logger.channel.bento_sdk', '@cache.default', '@state', '@bento_sdk.queue_manager']
 
   bento_sdk.client:
     class: Drupal\bento_sdk\Client\BentoClient
