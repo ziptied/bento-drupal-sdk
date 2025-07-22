@@ -23,6 +23,9 @@ bento_sdk.settings:
     default_sender_email:
       type: email
       label: 'Default sender email address'
+    default_author_email:
+      type: string
+      label: 'Default author email'
     enable_email_validation:
       type: boolean
       label: 'Enable email validation via Bento API'

@@ -531,6 +531,15 @@ class BentoService {
       return FALSE;
     }
 
+    // Log which "from" address will be used if not explicitly provided.
+    $from_email = $this->getDefaultFromEmail();
+    if (empty($email_data['from'])) {
+      $email_data['from'] = $from_email;
+      $this->logger->info('Using default from address: @email', [
+        '@email' => $this->sanitizeEmailForLogging($from_email),
+      ]);
+    }
+
     // Ensure credentials are loaded.
     $this->loadCredentials();
 
@@ -914,6 +923,31 @@ class BentoService {
   }
 
   /**
+   * Gets the default "from" email address based on configuration.
+   *
+   * @return string
+   *   The default from email address.
+   */
+  public function getDefaultFromEmail(): string {
+    $config = $this->configFactory->get('bento_sdk.settings');
+    
+    // Priority order:
+    // 1. Selected author email
+    // 2. Default sender email
+    // 3. Fallback
+    
+    if (!empty($config->get('default_author_email'))) {
+      return $config->get('default_author_email');
+    }
+    
+    if (!empty($config->get('default_sender_email'))) {
+      return $config->get('default_sender_email');
+    }
+    
+    return 'noreply@example.com';
+  }
+
+  /**
    * Formats transactional email data according to Bento API specification.
    *
    * @param array $email_data
@@ -924,13 +958,33 @@ class BentoService {
    */
   private function formatTransactionalEmailData(array $email_data): array {
     $config = $this->configFactory->get('bento_sdk.settings');
-    $default_from = $config->get('default_sender_email') ?: 'noreply@example.com';
+    
+    // Priority order for "from" address:
+    // 1. Explicitly provided 'from' in email_data
+    // 2. Selected author email from configuration
+    // 3. Default sender email from configuration
+    // 4. Fallback to noreply@example.com
+    
+    $default_from = 'noreply@example.com';
+    
+    if (!empty($email_data['from'])) {
+      $from_email = $email_data['from'];
+    }
+    elseif (!empty($config->get('default_author_email'))) {
+      $from_email = $config->get('default_author_email');
+    }
+    elseif (!empty($config->get('default_sender_email'))) {
+      $from_email = $config->get('default_sender_email');
+    }
+    else {
+      $from_email = $default_from;
+    }
 
     $formatted = [
       'emails' => [
         [
           'to' => $email_data['to'],
-          'from' => $email_data['from'] ?? $default_from,
+          'from' => $from_email,
           'subject' => $email_data['subject'],
           'transactional' => TRUE,
         ],
