@@ -143,9 +143,14 @@ class BentoEventQueueManager {
   public function clearQueue(): bool {
     try {
       $queue = $this->getQueue();
-      $queue->deleteQueue();
-      
-      $this->logger->info('Bento event queue cleared');
+      $cleared = 0;
+      while ($item = $queue->claimItem()) {
+        $queue->deleteItem($item);
+        $cleared++;
+      }
+      $this->logger->info('Bento event queue cleared. Removed @count items.', [
+        '@count' => $cleared,
+      ]);
       return TRUE;
     }
     catch (\Exception $e) {
@@ -170,7 +175,6 @@ class BentoEventQueueManager {
       
       return [
         'size' => $queue->numberOfItems(),
-        'created' => time(), // Queue creation time would need to be tracked separately
       ];
     }
     catch (\Exception $e) {
@@ -180,7 +184,6 @@ class BentoEventQueueManager {
       
       return [
         'size' => 0,
-        'created' => 0,
       ];
     }
   }

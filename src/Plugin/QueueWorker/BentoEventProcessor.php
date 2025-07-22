@@ -45,6 +45,30 @@ class BentoEventProcessor extends QueueWorkerBase implements ContainerFactoryPlu
   private BentoEventRetryManager $retryManager;
 
   /**
+   * Error patterns for permanent failures (do not retry).
+   */
+  private const PERMANENT_ERROR_PATTERNS = [
+    'invalid',
+    'malformed',
+    'validation',
+    'bad request',
+    'unauthorized',
+    'forbidden',
+    'authentication',
+    'api key',
+  ];
+
+  /**
+   * Error patterns for retryable failures.
+   */
+  private const RETRYABLE_ERROR_PATTERNS = [
+    'timeout',
+    'connection',
+    'network',
+    '429', // Rate limiting
+  ];
+
+  /**
    * Constructs a new BentoEventProcessor.
    *
    * @param array $configuration
@@ -99,7 +123,11 @@ class BentoEventProcessor extends QueueWorkerBase implements ContainerFactoryPlu
     
     // Validate queue item structure
     if (!$this->isValidQueueItem($data)) {
-      throw new \InvalidArgumentException('Invalid queue item structure');
+      // Log the invalid item and discard it without throwing an exception
+      $this->logger->error('Discarding invalid queue item: @item', [
+        '@item' => print_r($data, TRUE),
+      ]);
+      return;
     }
 
     // Extract event data
@@ -135,7 +163,7 @@ class BentoEventProcessor extends QueueWorkerBase implements ContainerFactoryPlu
     }
     catch (\Exception $e) {
       // Determine if this error should be retried or discarded
-      $should_retry = $this->shouldRetryError($e, $event_data);
+      $should_retry = $this->shouldRetryError($e);
       
       if ($should_retry) {
         // Use retry manager to handle retry logic with exponential backoff
@@ -224,45 +252,37 @@ class BentoEventProcessor extends QueueWorkerBase implements ContainerFactoryPlu
    *
    * @param \Exception $exception
    *   The exception that occurred during processing.
-   * @param array $event_data
-   *   The event data that was being processed.
    *
    * @return bool
    *   TRUE if the error should trigger a retry, FALSE if the item should be discarded.
    */
-  private function shouldRetryError(\Exception $exception, array $event_data): bool {
+  private function shouldRetryError(\Exception $exception): bool {
     $error_message = strtolower($exception->getMessage());
-    
-    // Don't retry for malformed data or validation errors
-    if (strpos($error_message, 'invalid') !== FALSE ||
-        strpos($error_message, 'malformed') !== FALSE ||
-        strpos($error_message, 'validation') !== FALSE ||
-        strpos($error_message, 'bad request') !== FALSE) {
-      return FALSE;
+
+    // Check for permanent error patterns (do not retry)
+    foreach (self::PERMANENT_ERROR_PATTERNS as $pattern) {
+      if (strpos($error_message, $pattern) !== FALSE) {
+        return FALSE;
+      }
     }
-    
-    // Don't retry for authentication/authorization errors
-    if (strpos($error_message, 'unauthorized') !== FALSE ||
-        strpos($error_message, 'forbidden') !== FALSE ||
-        strpos($error_message, 'authentication') !== FALSE ||
-        strpos($error_message, 'api key') !== FALSE) {
-      return FALSE;
-    }
-    
+
     // Don't retry for client errors (4xx) except rate limiting
     if (strpos($error_message, '4') === 0 && strpos($error_message, '429') === FALSE) {
       return FALSE;
     }
-    
-    // Retry for network issues, timeouts, and server errors
-    if (strpos($error_message, 'timeout') !== FALSE ||
-        strpos($error_message, 'connection') !== FALSE ||
-        strpos($error_message, 'network') !== FALSE ||
-        strpos($error_message, '5') === 0 ||  // 5xx server errors
-        strpos($error_message, '429') !== FALSE) {  // Rate limiting
+
+    // Retry for retryable error patterns
+    foreach (self::RETRYABLE_ERROR_PATTERNS as $pattern) {
+      if (strpos($error_message, $pattern) !== FALSE) {
+        return TRUE;
+      }
+    }
+
+    // Retry for 5xx server errors
+    if (strpos($error_message, '5') === 0) {
       return TRUE;
     }
-    
+
     // Default to retry for unknown errors to be safe
     return TRUE;
   }

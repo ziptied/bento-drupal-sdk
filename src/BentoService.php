@@ -116,11 +116,7 @@ class BentoService {
    *   TRUE if the event was queued successfully, FALSE otherwise.
    */
   public function sendEvent(array $event_data): bool {
-    // Basic validation before queuing
-    if (!$this->validateEventDataForQueue($event_data)) {
-      return FALSE;
-    }
-
+    // Basic validation before queuing is now handled by the queue manager.
     try {
       // Attempt to queue the event
       $queued = $this->queueManager->queueEvent($event_data);
@@ -1406,41 +1402,6 @@ class BentoService {
         'created' => 0,
       ];
     }
-  }
-
-  /**
-   * Validates event data before queuing.
-   *
-   * Performs basic validation to ensure event data is suitable for queuing.
-   * More comprehensive validation will be done by the queue manager.
-   *
-   * @param array $event_data
-   *   The event data to validate.
-   *
-   * @return bool
-   *   TRUE if valid for queuing, FALSE otherwise.
-   */
-  private function validateEventDataForQueue(array $event_data): bool {
-    // Check required fields
-    if (empty($event_data['type'])) {
-      $this->logger->error('Event type is required for Bento events.');
-      return FALSE;
-    }
-
-    if (empty($event_data['email'])) {
-      $this->logger->error('Email is required for Bento events.');
-      return FALSE;
-    }
-
-    // Basic email format validation
-    if (!filter_var($event_data['email'], FILTER_VALIDATE_EMAIL)) {
-      $this->logger->error('Invalid email format for Bento event: @email', [
-        '@email' => $this->sanitizeEmailForLogging($event_data['email']),
-      ]);
-      return FALSE;
-    }
-
-    return TRUE;
   }
 
 }
