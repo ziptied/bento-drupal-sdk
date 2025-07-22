@@ -231,6 +231,32 @@ class BentoClient {
   }
 
   /**
+   * Fetches the list of verified authors from Bento API.
+   *
+   * @return array
+   *   Array of author email addresses.
+   *
+   * @throws \Exception
+   *   When the request fails or credentials are not set.
+   */
+  public function fetchAuthors(): array {
+    $response = $this->get('fetch/authors');
+    
+    // The API returns an array of author objects
+    // Extract email addresses from the response
+    $authors = [];
+    if (isset($response['authors']) && is_array($response['authors'])) {
+      foreach ($response['authors'] as $author) {
+        if (isset($author['email']) && filter_var($author['email'], FILTER_VALIDATE_EMAIL)) {
+          $authors[] = $author['email'];
+        }
+      }
+    }
+    
+    return $authors;
+  }
+
+  /**
    * Validates the API credentials by making a test request.
    *
    * @return bool
@@ -435,6 +461,7 @@ class BentoClient {
     $allowed_patterns = [
       '/^batch\/(events|emails|subscribers)$/',
       '/^fetch\/commands$/',
+      '/^fetch\/authors$/',
       '/^experimental\/validation$/',
       '/^subscribers\/[a-zA-Z0-9%._-]+$/', // Allow URL-encoded characters
       '/^events\/[a-zA-Z0-9_-]+$/',
