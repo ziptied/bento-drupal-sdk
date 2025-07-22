@@ -371,14 +371,29 @@ class BentoSettingsForm extends ConfigFormBase {
       ];
 
       $form['test_events']['queue_test_events'] = [
-        '#type' => 'submit',
+        '#type' => 'button',
         '#value' => $this->t('Queue Test Events'),
-        '#submit' => ['::queueTestEventsSubmit'],
-        '#validate' => ['::queueTestEventsValidate'],
         '#disabled' => !$this->isConfigured(),
         '#attributes' => [
           'class' => ['button--primary'],
         ],
+        '#ajax' => [
+          'callback' => '::queueTestEventsAjaxCallback',
+          'wrapper' => 'test-events-messages',
+          'method' => 'replace',
+          'effect' => 'fade',
+          'progress' => [
+            'type' => 'throbber',
+            'message' => $this->t('Queueing test events...'),
+          ],
+        ],
+      ];
+
+      // Add messages container for AJAX responses
+      $form['test_events']['messages'] = [
+        '#type' => 'markup',
+        '#markup' => '<div id="test-events-messages"></div>',
+        '#weight' => 10,
       ];
 
       if (!$this->isConfigured()) {
@@ -1362,49 +1377,45 @@ class BentoSettingsForm extends ConfigFormBase {
    }
 
    /**
-    * Validation handler for queue test events button.
+    * AJAX callback for queue test events button.
     *
     * @param array $form
     *   The form array.
     * @param \Drupal\Core\Form\FormStateInterface $form_state
     *   The form state.
-    */
-   public function queueTestEventsValidate(array &$form, FormStateInterface $form_state): void {
-     // Check if user has permission
-     if (!$this->hasTestEventsAccess()) {
-       $form_state->setErrorByName('queue_test_events', $this->t('You do not have permission to queue test events.'));
-       return;
-     }
-
-     // Check if Bento is configured
-     if (!$this->isConfigured()) {
-       $form_state->setErrorByName('queue_test_events', $this->t('Please configure API credentials before queuing test events.'));
-       return;
-     }
-
-     // Check if at least one event type is selected
-     $selected_events = array_filter($form_state->getValue('event_types', []));
-     if (empty($selected_events)) {
-       $form_state->setErrorByName('event_types', $this->t('Please select at least one event type to queue.'));
-       return;
-     }
-   }
-
-   /**
-    * Submit handler for queue test events button.
     *
-    * @param array $form
-    *   The form array.
-    * @param \Drupal\Core\Form\FormStateInterface $form_state
-    *   The form state.
+    * @return \Drupal\Core\Ajax\AjaxResponse
+    *   The AJAX response.
     */
-   public function queueTestEventsSubmit(array &$form, FormStateInterface $form_state): void {
+   public function queueTestEventsAjaxCallback(array &$form, FormStateInterface $form_state) {
+     $response = new AjaxResponse();
+
      try {
+       // Validate permissions
+       if (!$this->hasTestEventsAccess()) {
+         $error_message = $this->t('You do not have permission to queue test events.');
+         $response->addCommand(new MessageCommand($error_message, 'error'));
+         return $response;
+       }
+
+       // Validate configuration
+       if (!$this->isConfigured()) {
+         $error_message = $this->t('Please configure API credentials before queuing test events.');
+         $response->addCommand(new MessageCommand($error_message, 'error'));
+         return $response;
+       }
+
+       // Get selected events
        $selected_events = array_filter($form_state->getValue('event_types', []));
+       if (empty($selected_events)) {
+         $error_message = $this->t('Please select at least one event type to queue.');
+         $response->addCommand(new MessageCommand($error_message, 'error'));
+         return $response;
+       }
+
+       // Queue the events
        $queued_count = 0;
        $failed_count = 0;
-
-       // Get the queue manager service
        $queue_manager = \Drupal::service('bento_sdk.queue_manager');
 
        foreach ($selected_events as $event_type) {
@@ -1417,21 +1428,23 @@ class BentoSettingsForm extends ConfigFormBase {
          }
        }
 
-       // Provide feedback to the user
+       // Provide feedback messages
        if ($queued_count > 0) {
-         \Drupal::messenger()->addStatus($this->t('Successfully queued @count test events.', [
+         $success_message = $this->t('Successfully queued @count test events.', [
            '@count' => $queued_count,
-         ]));
+         ]);
+         $response->addCommand(new MessageCommand($success_message, 'status'));
        }
 
        if ($failed_count > 0) {
-         \Drupal::messenger()->addWarning($this->t('Failed to queue @count test events. Check the logs for details.', [
+         $warning_message = $this->t('Failed to queue @count test events. Check the logs for details.', [
            '@count' => $failed_count,
-         ]));
+         ]);
+         $response->addCommand(new MessageCommand($warning_message, 'warning'));
        }
 
        // Log the action for audit trail
-       $this->logger->info('Test events queued by user @username (ID: @uid). Queued: @queued, Failed: @failed', [
+       $this->logger->info('Test events queued via AJAX by user @username (ID: @uid). Queued: @queued, Failed: @failed', [
          '@username' => $this->currentUser->getAccountName(),
          '@uid' => $this->currentUser->id(),
          '@queued' => $queued_count,
@@ -1439,14 +1452,17 @@ class BentoSettingsForm extends ConfigFormBase {
        ]);
 
      } catch (\Exception $e) {
-       \Drupal::messenger()->addError($this->t('An error occurred while queuing test events: @message', [
+       $error_message = $this->t('An error occurred while queuing test events: @message', [
          '@message' => $e->getMessage(),
-       ]));
+       ]);
+       $response->addCommand(new MessageCommand($error_message, 'error'));
 
-       $this->logger->error('Exception while queuing test events: @message', [
+       $this->logger->error('Exception while queuing test events via AJAX: @message', [
          '@message' => $e->getMessage(),
        ]);
      }
+
+     return $response;
    }
 
    /**
