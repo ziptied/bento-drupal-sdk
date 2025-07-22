@@ -1556,4 +1556,77 @@ class BentoService {
     return NULL;
   }
 
+  /**
+   * Send a test webform event with sample data.
+   *
+   * Creates a mock webform submission event for testing the integration.
+   * This method bypasses the actual webform submission process and directly
+   * creates a properly formatted event using the configured event type.
+   *
+   * @param string $email
+   *   The email address to use for the test event.
+   *
+   * @return bool
+   *   TRUE if the test event was sent successfully, FALSE otherwise.
+   */
+  public function sendTestWebformEvent(string $email): bool {
+    if (!$this->isConfigured()) {
+      $this->logger->error('Cannot send test webform event - Bento SDK is not properly configured.');
+      return FALSE;
+    }
+
+    // Check if webform integration is enabled
+    $config = $this->configFactory->get('bento_sdk.settings');
+    if (!$config->get('enable_webform_integration')) {
+      $this->logger->warning('Cannot send test webform event - webform integration is disabled.');
+      return FALSE;
+    }
+
+    try {
+      // Create sample webform data
+      $sample_form_data = [
+        'email' => $email,
+        'first_name' => 'Test',
+        'last_name' => 'User',
+        'subject' => 'Test Webform Submission',
+        'message' => 'This is a test webform submission sent from the Drupal admin interface to verify the Bento integration is working correctly.',
+        'phone' => '555-123-4567',
+        'company' => 'Test Company',
+        'how_did_you_hear' => 'Admin Test',
+        'newsletter_signup' => TRUE,
+      ];
+
+      // Use the same mapping logic as real webform submissions
+      $event_data = $this->mapWebformDataToEvent($sample_form_data, 'admin_test_form');
+
+      if (!$event_data) {
+        $this->logger->error('Failed to create test webform event data - no valid email found.');
+        return FALSE;
+      }
+
+      // Add test-specific details
+      $event_data['details']['test_event'] = TRUE;
+      $event_data['details']['sent_from'] = 'drupal_admin_interface';
+      $event_data['details']['timestamp'] = time();
+
+      // Send the event
+      $success = $this->sendEvent($event_data);
+
+      if ($success) {
+        $this->logger->info('Test webform event sent successfully for @email using event type @type', [
+          '@email' => $this->sanitizeEmailForLogging($email),
+          '@type' => $event_data['type'],
+        ]);
+      }
+
+      return $success;
+    }
+    catch (\Exception $e) {
+      $this->logger->error('Failed to send test webform event: @message', [
+        '@message' => $this->sanitizeErrorMessage($e->getMessage()),
+      ]);
+      return FALSE;
+    }
+  }
+
 }
