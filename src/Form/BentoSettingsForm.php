@@ -195,6 +195,38 @@ class BentoSettingsForm extends ConfigFormBase {
       ],
     ];
 
+    // Add author dropdown field
+    $form['mail_settings']['default_author_email'] = [
+      '#type' => 'select',
+      '#title' => $this->t('Default author email'),
+      '#description' => $this->t('Select a verified sender email address from your Bento account. This will be used as the default "from" address for emails sent through Bento.'),
+      '#options' => $this->getAuthorOptions(),
+      '#default_value' => $config->get('default_author_email'),
+      '#disabled' => !$can_edit_mail || !$this->isConfigured(),
+      '#empty_option' => $this->t('- Select an author -'),
+      '#empty_value' => '',
+      '#states' => [
+        'visible' => [
+          ':input[name="enable_mail_routing"]' => ['checked' => TRUE],
+        ],
+      ],
+    ];
+
+    // Add refresh button
+    $form['mail_settings']['refresh_authors'] = [
+      '#type' => 'button',
+      '#value' => $this->t('Refresh Authors'),
+      '#disabled' => !$can_edit_mail || !$this->isConfigured(),
+      '#states' => [
+        'visible' => [
+          ':input[name="enable_mail_routing"]' => ['checked' => TRUE],
+        ],
+      ],
+      '#attributes' => [
+        'class' => ['button--small'],
+      ],
+    ];
+
     $form['validation_settings'] = [
       '#type' => 'fieldset',
       '#title' => $this->t('Email Validation Settings'),
@@ -417,6 +449,20 @@ class BentoSettingsForm extends ConfigFormBase {
     if ($enable_mail_routing && empty($default_sender_email)) {
       $form_state->setErrorByName('default_sender_email', $this->t('Default sender email is required when mail routing is enabled.'));
     }
+
+    // Validate default author email if selected.
+    $default_author_email = $form_state->getValue('default_author_email');
+    if (!empty($default_author_email)) {
+      if (!filter_var($default_author_email, FILTER_VALIDATE_EMAIL)) {
+        $form_state->setErrorByName('default_author_email', $this->t('Selected author email is not valid.'));
+      }
+      
+      // Validate that the selected author exists in the current list.
+      $available_authors = $this->getAuthorOptions();
+      if (!isset($available_authors[$default_author_email])) {
+        $form_state->setErrorByName('default_author_email', $this->t('Selected author is not available. Please refresh the authors list.'));
+      }
+    }
   }
 
   /**
@@ -467,6 +513,14 @@ class BentoSettingsForm extends ConfigFormBase {
       if ($old_sender_email !== $new_sender_email) {
         $changes[] = 'default_sender_email';
         $config->set('default_sender_email', $new_sender_email);
+      }
+
+      // Track author setting changes.
+      $old_author_email = $config->get('default_author_email');
+      $new_author_email = $form_state->getValue('default_author_email');
+      if ($old_author_email !== $new_author_email) {
+        $changes[] = 'default_author_email';
+        $config->set('default_author_email', $new_author_email);
       }
     }
 
@@ -521,6 +575,52 @@ class BentoSettingsForm extends ConfigFormBase {
     }
 
     parent::submitForm($form, $form_state);
+  }
+
+  /**
+   * Gets the author options for the dropdown.
+   *
+   * @return array
+   *   Array of email addresses keyed by email.
+   */
+  private function getAuthorOptions(): array {
+    if (!$this->isConfigured()) {
+      return [];
+    }
+
+    try {
+      $bento_service = \Drupal::service('bento.sdk');
+      $authors = $bento_service->fetchAuthors();
+      
+      $options = [];
+      foreach ($authors as $email) {
+        $options[$email] = $email;
+      }
+      
+      return $options;
+    }
+    catch (\Exception $e) {
+      $this->logger->error('Failed to fetch authors for dropdown: @message', [
+        '@message' => $e->getMessage(),
+      ]);
+      return [];
+    }
+  }
+
+  /**
+   * Checks if Bento is properly configured.
+   *
+   * @return bool
+   *   TRUE if configured, FALSE otherwise.
+   */
+  private function isConfigured(): bool {
+    try {
+      $bento_service = \Drupal::service('bento.sdk');
+      return $bento_service->isConfigured();
+    }
+    catch (\Exception $e) {
+      return FALSE;
+    }
   }
 
   /**
