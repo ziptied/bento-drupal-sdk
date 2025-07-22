@@ -77,17 +77,17 @@ class BentoSettingsForm extends ConfigFormBase {
    * @return \Drupal\Core\Access\AccessResult
    *   The access result.
    */
-  public static function access(AccountInterface $account) {
-    // Allow access if user has any of the Bento SDK permissions.
-    $permissions = [
-      'administer bento sdk',
-      'view bento sdk settings',
-      'edit bento sdk credentials',
-      'edit bento sdk mail settings',
-      'edit bento sdk validation settings',
-      'edit bento sdk performance settings',
-    ];
-
+   public static function access(AccountInterface $account) {
+     // Allow access if user has any of the Bento SDK permissions.
+     $permissions = [
+       'administer bento sdk',
+       'view bento sdk settings',
+       'edit bento sdk credentials',
+       'edit bento sdk mail settings',
+       'edit bento sdk validation settings',
+       'edit bento sdk performance settings',
+       'use bento sdk test events',
+     ];
     foreach ($permissions as $permission) {
       if ($account->hasPermission($permission)) {
         return AccessResult::allowed()->cachePerPermissions();
@@ -1339,7 +1339,7 @@ class BentoSettingsForm extends ConfigFormBase {
     */
    private function hasTestEventsAccess(): bool {
      return $this->currentUser->hasPermission('administer bento sdk') ||
-            $this->currentUser->hasPermission('administer site configuration');
+            $this->currentUser->hasPermission('use bento sdk test events');
    }
 
    /**

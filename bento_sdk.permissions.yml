@@ -27,3 +27,8 @@ edit bento sdk validation settings:
 edit bento sdk performance settings:
   title: 'Edit Bento SDK Performance Settings'
   description: 'Configure rate limiting and circuit breaker settings'
+
+use bento sdk test events:
+  title: 'Use Bento SDK Test Events'
+  description: 'Queue test events for testing Bento integration'
+  restrict access: true
