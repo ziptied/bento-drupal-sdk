@@ -226,17 +226,11 @@ class BentoSettingsForm extends ConfigFormBase {
       '#prefix' => '<div id="authors-dropdown-wrapper">',
       '#suffix' => '</div>',
       '#ajax' => [
-        'callback' => '::sendTestEmailCallback',
-        'wrapper' => 'test-email-messages',
+        'callback' => '::updateTestEmailButtonStateCallback',
+        'wrapper' => 'test-email-button-state',
         'method' => 'replace',
         'effect' => 'fade',
-        'event' => 'click',
-        'prevent' => 'click',
-        'progress' => [
-          'type' => 'throbber',
-          'message' => $this->t('Sending test email...'),
-        ],
-      ],
+        'event' => 'change',
       ],
     ];
 
