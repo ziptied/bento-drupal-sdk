@@ -122,7 +122,7 @@ class BentoSettingsForm extends ConfigFormBase {
     $form['api_credentials']['site_uuid'] = [
       '#type' => 'textfield',
       '#title' => $this->t('Site UUID'),
-      '#description' => $this->t('Your Bento site UUID (e.g., 12345678-1234-1234-1234-123456789abc)'),
+      '#description' => $this->t('Your Bento site UUID (e.g., 12345678-1234-1234-1234-123456789abc or 2103f23614d9877a6b4ee73d28a5c61d)'),
       '#default_value' => $config->get('site_uuid'),
       '#required' => TRUE,
       '#maxlength' => 36,
@@ -389,8 +389,8 @@ class BentoSettingsForm extends ConfigFormBase {
     $secret_key = $form_state->getValue('secret_key');
 
     // Validate Site UUID format.
-    if ($site_uuid && !preg_match('/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i', $site_uuid)) {
-      $form_state->setErrorByName('site_uuid', $this->t('Site UUID must be in valid UUID format.'));
+    if ($site_uuid && !preg_match('/^([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|[0-9a-f]{32})$/i', $site_uuid)) {
+      $form_state->setErrorByName('site_uuid', $this->t('Site UUID must be in valid UUID format (with or without hyphens).'));
     }
 
     // Validate publishable key is not empty.

@@ -43,6 +43,7 @@ Table of contents
 - PHP 8.1 or higher
 - Composer (for dependency management)
 - Bento API credentials (get these from your [Bento dashboard](https://app.bentonow.com))
+  - **Site UUID**: 32-character hexadecimal string (e.g., `2103f23614d9877a6b4ee73d28a5c61d`) or standard UUID format with hyphens
 
 ## Getting Started
 
@@ -67,7 +68,7 @@ Table of contents
 ### Configuration
 
 1. In Drupal, go to **Configuration > Bento > Settings** (`/admin/config/bento/settings`).
-2. Enter your **Site UUID**, **Publishable Key**, and **Secret Key** (from your Bento account).
+2. Enter your **Site UUID** (32-character hex string or UUID format), **Publishable Key**, and **Secret Key** (from your Bento account).
 3. (Optional) Enable **Route Drupal emails through Bento** to send all site emails via Bento.
 4. (Optional) Enable **Email Validation** to check emails before sending.
 5. Click **Save**.
@@ -135,6 +136,10 @@ $bento->sendTransactionalEmail([
 ]);
 ```
 
+#### How Email Sending Works
+- **Flexible Email Delivery:** This module uses Drupal's built-in, flexible email system. You can choose to send all your site's emails through Bento with a simple setting in the admin panel.
+- **Automatic Fallback:** If for any reason Bento can't send an email (for example, if your credentials are missing or there's a temporary issue), the system will automatically use Drupal's regular email method instead. This means your emails will always be sent, with no extra work needed from you.
+
 ### Email Validation
 Validate a single email:
 ```php
@@ -173,6 +178,7 @@ $bento->changeEmail('old@example.com', 'new@example.com');
 
 ## Things to Know
 
+- **Email Delivery:** You can route all your site's emails through Bento, or stick with Drupal's default. If Bento is unavailable, emails will still be sent using Drupal's regular system—so you never miss a message.
 - **Security**: Secret keys are stored securely. For best security, use environment variables.
 - **Error Handling**: All errors are logged to Drupal’s log system. Sensitive data is sanitized.
 - **Rate Limiting**: The SDK respects Bento API rate limits and uses chunked batch operations.

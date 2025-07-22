@@ -617,8 +617,8 @@ class BentoClient {
 
     // Specific validation for site_uuid format.
     if ($type === 'site_uuid') {
-      if (!preg_match('/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i', $credential)) {
-        throw new \InvalidArgumentException('Site UUID must be in valid UUID format');
+      if (!preg_match('/^([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|[0-9a-f]{32})$/i', $credential)) {
+        throw new \InvalidArgumentException('Site UUID must be in valid UUID format (with or without hyphens)');
       }
     }
   }

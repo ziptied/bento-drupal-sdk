@@ -1,7 +1,7 @@
 name: 'Bento SDK'
 type: module
 description: 'Official Bento API integration for Drupal 10'
-core_version_requirement: ^10.2
+core_version_requirement: '>=10'
 package: 'Bento'
 dependencies:
   - drupal:system

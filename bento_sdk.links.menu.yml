@@ -1,0 +1,8 @@
+# Menu links for Bento SDK module.
+
+bento_sdk.settings:
+  title: 'Bento SDK Settings'
+  description: 'Configure Bento API credentials and settings'
+  route_name: bento_sdk.settings
+  parent: system.admin_config_services
+  weight: 100 
