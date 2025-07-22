@@ -1,0 +1,5 @@
+test-email:
+  js:
+    js/test-email.js: {}
+  dependencies:
+    - core/drupal

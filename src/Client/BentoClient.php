@@ -193,10 +193,10 @@ class BentoClient {
   }
 
   /**
-   * Performs a POST request to the Bento API.
+   * Makes a POST request to the Bento API.
    *
    * @param string $endpoint
-   *   The API endpoint (without base URL).
+   *   The API endpoint.
    * @param array $data
    *   Data to send in the request body.
    *
@@ -213,7 +213,14 @@ class BentoClient {
     $endpoint = $this->validateAndSanitizeEndpoint($endpoint);
     
     // Validate and sanitize request data.
-    $data = $this->validateAndSanitizeRequestData($data);
+    try {
+      $data = $this->validateAndSanitizeRequestData($data);
+    } catch (\Exception $e) {
+      $this->logger->error('BentoClient validateAndSanitizeRequestData failed: @error', [
+        '@error' => $e->getMessage(),
+      ]);
+      throw $e;
+    }
 
     // Add site_uuid to all requests.
     $data['site_uuid'] = $this->siteUuid;
@@ -505,7 +512,7 @@ class BentoClient {
         throw new \InvalidArgumentException('Invalid parameter key format: ' . $key);
       }
 
-      // Validate and sanitize parameter value.
+      // Validate and sanitize parameter value (but don't recursively validate array keys).
       $sanitized[$key] = $this->validateAndSanitizeParamValue($value, $key);
     }
 
@@ -558,9 +565,15 @@ class BentoClient {
       return $sanitized;
     }
 
-    // Handle array values (recursive validation).
+    // Handle array values (recursive validation of array contents, not keys).
     if (is_array($value)) {
-      return $this->validateAndSanitizeParams($value);
+      $sanitized_array = [];
+      foreach ($value as $array_key => $array_value) {
+        // For arrays, we don't validate the keys as parameter keys
+        // We just recursively validate the values
+        $sanitized_array[$array_key] = $this->validateAndSanitizeParamValue($array_value, $key . '[' . $array_key . ']');
+      }
+      return $sanitized_array;
     }
 
     throw new \InvalidArgumentException('Unsupported parameter type for: ' . $key);
