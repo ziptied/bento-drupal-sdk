@@ -131,7 +131,7 @@ class BentoSettingsForm extends ConfigFormBase {
       '#maxlength' => 36,
       '#disabled' => !$can_edit_credentials,
       '#ajax' => [
-        'callback' => '::credentialsChangedCallback',
+        'callback' => '::credentialsChangedWithButtonUpdateCallback',
         'wrapper' => 'authors-dropdown-wrapper',
         'method' => 'replace',
         'effect' => 'fade',
@@ -148,7 +148,7 @@ class BentoSettingsForm extends ConfigFormBase {
       '#maxlength' => 255,
       '#disabled' => !$can_edit_credentials,
       '#ajax' => [
-        'callback' => '::credentialsChangedCallback',
+        'callback' => '::credentialsChangedWithButtonUpdateCallback',
         'wrapper' => 'authors-dropdown-wrapper',
         'method' => 'replace',
         'effect' => 'fade',
@@ -163,7 +163,7 @@ class BentoSettingsForm extends ConfigFormBase {
       '#maxlength' => 255,
       '#disabled' => !$can_edit_credentials,
       '#ajax' => [
-        'callback' => '::credentialsChangedCallback',
+        'callback' => '::credentialsChangedWithButtonUpdateCallback',
         'wrapper' => 'authors-dropdown-wrapper',
         'method' => 'replace',
         'effect' => 'fade',
@@ -225,6 +225,13 @@ class BentoSettingsForm extends ConfigFormBase {
       ],
       '#prefix' => '<div id="authors-dropdown-wrapper">',
       '#suffix' => '</div>',
+      '#ajax' => [
+        'callback' => '::updateTestEmailButtonStateCallback',
+        'wrapper' => 'test-email-button-state',
+        'method' => 'replace',
+        'effect' => 'fade',
+        'event' => 'change',
+      ],
     ];
 
     // Add refresh button
@@ -285,6 +292,23 @@ class BentoSettingsForm extends ConfigFormBase {
         #test-email-messages .messages {
           margin: 10px 0;
         }
+        .test-email-state {
+          margin-top: 10px;
+          padding: 8px 12px;
+          border-radius: 4px;
+          font-size: 0.9em;
+        }
+        .test-email-state:empty {
+          display: none;
+        }
+        #test-email-button:disabled {
+          opacity: 0.6;
+          cursor: not-allowed;
+        }
+        #test-email-button:not(:disabled) {
+          background-color: #0071b8;
+          border-color: #0071b8;
+        }
       </style>',
       '#weight' => -1,
     ];
@@ -302,13 +326,21 @@ class BentoSettingsForm extends ConfigFormBase {
       ],
     ];
 
-    // Add test button
+    // Add button state wrapper
+    $form['mail_settings']['test_email_section']['button_state_wrapper'] = [
+      '#type' => 'markup',
+      '#markup' => '<div id="test-email-button-state"></div>',
+      '#weight' => 0,
+    ];
+
+    // Add test button with dynamic state
     $form['mail_settings']['test_email_section']['send_test_email'] = [
       '#type' => 'button',
       '#value' => $this->t('Send Test Email'),
       '#disabled' => !$this->canSendTestEmail(),
       '#attributes' => [
         'class' => ['button--primary'],
+        'id' => 'test-email-button',
       ],
       '#ajax' => [
         'callback' => '::sendTestEmailCallback',
@@ -921,6 +953,12 @@ class BentoSettingsForm extends ConfigFormBase {
       // Replace the dropdown
       $response->addCommand(new ReplaceCommand('#authors-dropdown-wrapper', \Drupal::service('renderer')->render($updated_element)));
 
+      // Also update the test email button state
+      $button_response = $this->updateTestEmailButtonStateCallback($form, $form_state);
+      foreach ($button_response->getCommands() as $command) {
+        $response->addCommand($command);
+      }
+
     } catch (\Exception $e) {
       // Add error message
       $error_message = $this->t('Failed to refresh authors: @message', [
@@ -1176,6 +1214,111 @@ class BentoSettingsForm extends ConfigFormBase {
       ];
       $response->addCommand(new ReplaceCommand('#test-email-messages', \Drupal::service('renderer')->render($messages_element)));
     }
+
+    return $response;
+  }
+
+  /**
+   * Combined AJAX callback for credential changes and button state updates.
+   *
+   * @param array $form
+   *   The form array.
+   * @param \Drupal\Core\Form\FormStateInterface $form_state
+   *   The form state.
+   *
+   * @return \Drupal\Core\Ajax\AjaxResponse
+   *   The AJAX response.
+   */
+  public function credentialsChangedWithButtonUpdateCallback(array &$form, FormStateInterface $form_state) {
+    $response = new AjaxResponse();
+
+    // First handle the credential change (update authors dropdown)
+    $credential_response = $this->credentialsChangedCallback($form, $form_state);
+    
+    // Add all commands from the credential response
+    foreach ($credential_response->getCommands() as $command) {
+      $response->addCommand($command);
+    }
+
+    // Then update the button state
+    $button_response = $this->updateTestEmailButtonStateCallback($form, $form_state);
+    
+    // Add all commands from the button state response
+    foreach ($button_response->getCommands() as $command) {
+      $response->addCommand($command);
+    }
+
+    return $response;
+  }
+
+  /**
+   * AJAX callback to update test email button state.
+   *
+   * @param array $form
+   *   The form array.
+   * @param \Drupal\Core\Form\FormStateInterface $form_state
+   *   The form state.
+   *
+   * @return \Drupal\Core\Ajax\AjaxResponse
+   *   The AJAX response.
+   */
+  public function updateTestEmailButtonStateCallback(array &$form, FormStateInterface $form_state) {
+    $response = new AjaxResponse();
+
+    $can_send = $this->canSendTestEmail();
+    $rate_limit = $this->checkTestEmailRateLimit();
+
+    // Create updated button element
+    $updated_button = [
+      '#type' => 'button',
+      '#value' => $this->t('Send Test Email'),
+      '#disabled' => !$can_send,
+      '#attributes' => [
+        'class' => ['button--primary'],
+        'id' => 'test-email-button',
+      ],
+      '#ajax' => [
+        'callback' => '::sendTestEmailCallback',
+        'wrapper' => 'test-email-messages',
+        'method' => 'replace',
+        'effect' => 'fade',
+        'progress' => [
+          'type' => 'throbber',
+          'message' => $this->t('Sending test email...'),
+        ],
+      ],
+    ];
+
+    // Create state message
+    $state_message = '';
+    if (!$can_send) {
+      if (!$this->hasMailEditAccess()) {
+        $state_message = $this->t('You do not have permission to send test emails.');
+      } elseif (!$this->isConfigured()) {
+        $state_message = $this->t('Please configure API credentials first.');
+      } elseif (empty($this->config('bento_sdk.settings')->get('default_author_email'))) {
+        $state_message = $this->t('Please select an author from the dropdown above.');
+      } elseif (!$rate_limit['allowed']) {
+        $next_allowed = date('H:i:s', $rate_limit['next_allowed']);
+        $state_message = $this->t('Rate limit exceeded. Next test email allowed after @time.', [
+          '@time' => $next_allowed,
+        ]);
+      } else {
+        $state_message = $this->t('Test email prerequisites not met.');
+      }
+    } else {
+      $state_message = $this->t('Ready to send test email.');
+    }
+
+    // Create state wrapper element
+    $state_element = [
+      '#type' => 'markup',
+      '#markup' => '<div id="test-email-button-state" class="test-email-state">' . $state_message . '</div>',
+    ];
+
+    // Replace both button and state
+    $response->addCommand(new ReplaceCommand('#test-email-button', \Drupal::service('renderer')->render($updated_button)));
+    $response->addCommand(new ReplaceCommand('#test-email-button-state', \Drupal::service('renderer')->render($state_element)));
 
     return $response;
   }
