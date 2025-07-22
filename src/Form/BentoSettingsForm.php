@@ -1,0 +1,756 @@
+<?php
+
+namespace Drupal\bento_sdk\Form;
+
+use Drupal\Core\Form\ConfigFormBase;
+use Drupal\Core\Form\FormStateInterface;
+use Drupal\Core\State\StateInterface;
+use Drupal\Core\Session\AccountInterface;
+use Drupal\Core\Access\AccessResult;
+use Psr\Log\LoggerInterface;
+use Drupal\bento_sdk\BentoSanitizationTrait;
+
+/**
+ * Configuration form for Bento SDK settings.
+ *
+ * Provides an admin interface for configuring Bento API credentials
+ * and other module settings.
+ */
+class BentoSettingsForm extends ConfigFormBase {
+  use BentoSanitizationTrait;
+
+  /**
+   * The state service.
+   *
+   * @var \Drupal\Core\State\StateInterface
+   */
+  protected StateInterface $state;
+
+  /**
+   * The current user account.
+   *
+   * @var \Drupal\Core\Session\AccountInterface
+   */
+  protected AccountInterface $currentUser;
+
+  /**
+   * The logger service.
+   *
+   * @var \Psr\Log\LoggerInterface
+   */
+  protected LoggerInterface $logger;
+
+  /**
+   * {@inheritdoc}
+   */
+  public static function create(\Symfony\Component\DependencyInjection\ContainerInterface $container) {
+    $instance = parent::create($container);
+    $instance->state = $container->get('state');
+    $instance->currentUser = $container->get('current_user');
+    $instance->logger = $container->get('logger.channel.bento_sdk');
+    return $instance;
+  }
+
+  /**
+   * {@inheritdoc}
+   */
+  protected function getEditableConfigNames() {
+    return ['bento_sdk.settings'];
+  }
+
+  /**
+   * {@inheritdoc}
+   */
+  public function getFormId() {
+    return 'bento_sdk_settings_form';
+  }
+
+  /**
+   * Custom access callback for the settings form.
+   *
+   * @param \Drupal\Core\Session\AccountInterface $account
+   *   The user account to check access for.
+   *
+   * @return \Drupal\Core\Access\AccessResult
+   *   The access result.
+   */
+  public static function access(AccountInterface $account) {
+    // Allow access if user has any of the Bento SDK permissions.
+    $permissions = [
+      'administer bento sdk',
+      'view bento sdk settings',
+      'edit bento sdk credentials',
+      'edit bento sdk mail settings',
+      'edit bento sdk validation settings',
+      'edit bento sdk performance settings',
+    ];
+
+    foreach ($permissions as $permission) {
+      if ($account->hasPermission($permission)) {
+        return AccessResult::allowed()->cachePerPermissions();
+      }
+    }
+
+    return AccessResult::forbidden()->cachePerPermissions();
+  }
+
+  /**
+   * {@inheritdoc}
+   */
+  public function buildForm(array $form, FormStateInterface $form_state) {
+    $config = $this->config('bento_sdk.settings');
+    
+    // Migrate existing secret key from config to secure storage if needed.
+    $this->migrateSecretKeyToSecureStorage();
+
+    // Check permissions for different sections.
+    $can_edit_credentials = $this->hasCredentialEditAccess();
+    $can_edit_mail = $this->hasMailEditAccess();
+    $can_edit_validation = $this->hasValidationEditAccess();
+    $can_edit_performance = $this->hasPerformanceEditAccess();
+
+    $form['api_credentials'] = [
+      '#type' => 'fieldset',
+      '#title' => $this->t('API Credentials'),
+      '#description' => $this->t('Enter your Bento API credentials. You can find these in your Bento account settings.'),
+    ];
+
+    if (!$can_edit_credentials) {
+      $form['api_credentials']['#description'] .= ' ' . $this->t('<strong>Note:</strong> You do not have permission to modify credentials.');
+    }
+
+    $form['api_credentials']['site_uuid'] = [
+      '#type' => 'textfield',
+      '#title' => $this->t('Site UUID'),
+      '#description' => $this->t('Your Bento site UUID (e.g., 12345678-1234-1234-1234-123456789abc or 2103f23614d9877a6b4ee73d28a5c61d)'),
+      '#default_value' => $config->get('site_uuid'),
+      '#required' => TRUE,
+      '#maxlength' => 36,
+      '#disabled' => !$can_edit_credentials,
+    ];
+
+    $form['api_credentials']['publishable_key'] = [
+      '#type' => 'textfield',
+      '#title' => $this->t('Publishable Key'),
+      '#description' => $this->t('Your Bento publishable key'),
+      '#default_value' => $config->get('publishable_key'),
+      '#required' => TRUE,
+      '#maxlength' => 255,
+      '#disabled' => !$can_edit_credentials,
+    ];
+
+    $form['api_credentials']['secret_key'] = [
+      '#type' => 'password',
+      '#title' => $this->t('Secret Key'),
+      '#description' => $this->t('Your Bento secret key. Leave blank to keep existing value. <strong>Security Note:</strong> For production environments, consider setting the BENTO_SECRET_KEY environment variable instead.'),
+      '#maxlength' => 255,
+      '#disabled' => !$can_edit_credentials,
+    ];
+
+    // Show current secret key status if one exists.
+    $secret_key_configured = $this->getSecretKeyStatus();
+    if ($secret_key_configured['has_key']) {
+      $form['api_credentials']['secret_key']['#description'] .= ' ' . $this->t('A secret key is currently configured via @source.', [
+        '@source' => $secret_key_configured['source'],
+      ]);
+    }
+
+    // Add security warning for production environments.
+    $form['api_credentials']['security_warning'] = [
+      '#type' => 'markup',
+      '#markup' => '<div class="messages messages--warning">' . 
+        $this->t('<strong>Security Recommendation:</strong> For production environments, store the secret key in the BENTO_SECRET_KEY environment variable instead of the database. This prevents the key from being exported with configuration or exposed in database backups.') . 
+        '</div>',
+      '#weight' => -1,
+    ];
+
+    $form['mail_settings'] = [
+      '#type' => 'fieldset',
+      '#title' => $this->t('Mail Settings'),
+      '#description' => $this->t('Configure how Drupal emails are handled through Bento.'),
+    ];
+
+    if (!$can_edit_mail) {
+      $form['mail_settings']['#description'] .= ' ' . $this->t('<strong>Note:</strong> You do not have permission to modify mail settings.');
+    }
+
+    $form['mail_settings']['enable_mail_routing'] = [
+      '#type' => 'checkbox',
+      '#title' => $this->t('Route Drupal emails through Bento'),
+      '#description' => $this->t('When enabled, all Drupal emails will be sent via Bento API. If Bento is unavailable, emails will fallback to the default mail system.'),
+      '#default_value' => $config->get('enable_mail_routing'),
+      '#disabled' => !$can_edit_mail,
+    ];
+
+    $form['mail_settings']['default_sender_email'] = [
+      '#type' => 'email',
+      '#title' => $this->t('Default sender email'),
+      '#description' => $this->t('Default email address to use as sender when not specified. Used for transactional emails.'),
+      '#default_value' => $config->get('default_sender_email'),
+      '#disabled' => !$can_edit_mail,
+      '#states' => [
+        'visible' => [
+          ':input[name="enable_mail_routing"]' => ['checked' => TRUE],
+        ],
+      ],
+    ];
+
+    $form['validation_settings'] = [
+      '#type' => 'fieldset',
+      '#title' => $this->t('Email Validation Settings'),
+      '#description' => $this->t('Configure email validation using Bento\'s experimental validation API.'),
+    ];
+
+    if (!$can_edit_validation) {
+      $form['validation_settings']['#description'] .= ' ' . $this->t('<strong>Note:</strong> You do not have permission to modify validation settings.');
+    }
+
+    $form['validation_settings']['enable_email_validation'] = [
+      '#type' => 'checkbox',
+      '#title' => $this->t('Enable email validation'),
+      '#description' => $this->t('When enabled, emails will be validated using Bento\'s API before processing. Note: This uses an experimental API endpoint.'),
+      '#default_value' => $config->get('enable_email_validation'),
+      '#disabled' => !$can_edit_validation,
+    ];
+
+    $form['validation_settings']['email_validation_cache_valid_duration'] = [
+      '#type' => 'number',
+      '#title' => $this->t('Cache duration for valid emails (seconds)'),
+      '#description' => $this->t('How long to cache valid email validation results. Default: 86400 (24 hours).'),
+      '#default_value' => $config->get('email_validation_cache_valid_duration') ?: 86400,
+      '#min' => 300,
+      '#max' => 604800,
+      '#disabled' => !$can_edit_validation,
+      '#states' => [
+        'visible' => [
+          ':input[name="enable_email_validation"]' => ['checked' => TRUE],
+        ],
+      ],
+    ];
+
+    $form['validation_settings']['email_validation_cache_invalid_duration'] = [
+      '#type' => 'number',
+      '#title' => $this->t('Cache duration for invalid emails (seconds)'),
+      '#description' => $this->t('How long to cache invalid email validation results. Default: 3600 (1 hour).'),
+      '#default_value' => $config->get('email_validation_cache_invalid_duration') ?: 3600,
+      '#min' => 300,
+      '#max' => 86400,
+      '#disabled' => !$can_edit_validation,
+      '#states' => [
+        'visible' => [
+          ':input[name="enable_email_validation"]' => ['checked' => TRUE],
+        ],
+      ],
+    ];
+
+    $form['rate_limiting'] = [
+      '#type' => 'fieldset',
+      '#title' => $this->t('Rate Limiting & Performance'),
+      '#description' => $this->t('Configure API rate limiting and circuit breaker settings to prevent service overload.'),
+    ];
+
+    if (!$can_edit_performance) {
+      $form['rate_limiting']['#description'] .= ' ' . $this->t('<strong>Note:</strong> You do not have permission to modify performance settings.');
+    }
+
+    $form['rate_limiting']['enable_rate_limiting'] = [
+      '#type' => 'checkbox',
+      '#title' => $this->t('Enable rate limiting'),
+      '#description' => $this->t('Limit the number of API requests to prevent quota exhaustion and service degradation.'),
+      '#default_value' => $config->get('enable_rate_limiting') ?? TRUE,
+      '#disabled' => !$can_edit_performance,
+    ];
+
+    $form['rate_limiting']['max_requests_per_minute'] = [
+      '#type' => 'number',
+      '#title' => $this->t('Maximum requests per minute'),
+      '#description' => $this->t('Maximum number of API requests allowed per minute. Default: 60.'),
+      '#default_value' => $config->get('max_requests_per_minute') ?: 60,
+      '#min' => 1,
+      '#max' => 300,
+      '#disabled' => !$can_edit_performance,
+      '#states' => [
+        'visible' => [
+          ':input[name="enable_rate_limiting"]' => ['checked' => TRUE],
+        ],
+      ],
+    ];
+
+    $form['rate_limiting']['max_requests_per_hour'] = [
+      '#type' => 'number',
+      '#title' => $this->t('Maximum requests per hour'),
+      '#description' => $this->t('Maximum number of API requests allowed per hour. Default: 1000.'),
+      '#default_value' => $config->get('max_requests_per_hour') ?: 1000,
+      '#min' => 10,
+      '#max' => 10000,
+      '#disabled' => !$can_edit_performance,
+      '#states' => [
+        'visible' => [
+          ':input[name="enable_rate_limiting"]' => ['checked' => TRUE],
+        ],
+      ],
+    ];
+
+    $form['rate_limiting']['enable_circuit_breaker'] = [
+      '#type' => 'checkbox',
+      '#title' => $this->t('Enable circuit breaker'),
+      '#description' => $this->t('Temporarily stop API requests after repeated failures to prevent cascading failures.'),
+      '#default_value' => $config->get('enable_circuit_breaker') ?? TRUE,
+      '#disabled' => !$can_edit_performance,
+    ];
+
+    $form['rate_limiting']['circuit_breaker_failure_threshold'] = [
+      '#type' => 'number',
+      '#title' => $this->t('Failure threshold'),
+      '#description' => $this->t('Number of consecutive failures before circuit breaker opens. Default: 5.'),
+      '#default_value' => $config->get('circuit_breaker_failure_threshold') ?: 5,
+      '#min' => 1,
+      '#max' => 20,
+      '#disabled' => !$can_edit_performance,
+      '#states' => [
+        'visible' => [
+          ':input[name="enable_circuit_breaker"]' => ['checked' => TRUE],
+        ],
+      ],
+    ];
+
+    $form['rate_limiting']['circuit_breaker_timeout'] = [
+      '#type' => 'number',
+      '#title' => $this->t('Circuit breaker timeout (seconds)'),
+      '#description' => $this->t('How long to wait before attempting to close the circuit breaker. Default: 300 (5 minutes).'),
+      '#default_value' => $config->get('circuit_breaker_timeout') ?: 300,
+      '#min' => 60,
+      '#max' => 3600,
+      '#disabled' => !$can_edit_performance,
+      '#states' => [
+        'visible' => [
+          ':input[name="enable_circuit_breaker"]' => ['checked' => TRUE],
+        ],
+      ],
+    ];
+
+    $form['security_settings'] = [
+      '#type' => 'fieldset',
+      '#title' => $this->t('Security Settings'),
+      '#description' => $this->t('Configure SSL verification, timeouts, and security headers for API requests.'),
+    ];
+
+    if (!$can_edit_performance) {
+      $form['security_settings']['#description'] .= ' ' . $this->t('<strong>Note:</strong> You do not have permission to modify security settings.');
+    }
+
+    $form['security_settings']['ssl_verification'] = [
+      '#type' => 'checkbox',
+      '#title' => $this->t('Enable SSL certificate verification'),
+      '#description' => $this->t('Verify SSL certificates for API requests. Disable only for development environments with self-signed certificates.'),
+      '#default_value' => $config->get('ssl_verification') ?? TRUE,
+      '#disabled' => !$can_edit_performance,
+    ];
+
+    $form['security_settings']['request_timeout'] = [
+      '#type' => 'number',
+      '#title' => $this->t('Request timeout (seconds)'),
+      '#description' => $this->t('Maximum time to wait for API responses. Default: 30 seconds.'),
+      '#default_value' => $config->get('request_timeout') ?: 30,
+      '#min' => 5,
+      '#max' => 300,
+      '#disabled' => !$can_edit_performance,
+    ];
+
+    $form['security_settings']['connection_timeout'] = [
+      '#type' => 'number',
+      '#title' => $this->t('Connection timeout (seconds)'),
+      '#description' => $this->t('Maximum time to wait for initial connection. Default: 10 seconds.'),
+      '#default_value' => $config->get('connection_timeout') ?: 10,
+      '#min' => 1,
+      '#max' => 60,
+      '#disabled' => !$can_edit_performance,
+    ];
+
+    $form['security_settings']['enable_request_id_tracking'] = [
+      '#type' => 'checkbox',
+      '#title' => $this->t('Enable request ID tracking'),
+      '#description' => $this->t('Add unique request IDs to API calls for audit trails and debugging.'),
+      '#default_value' => $config->get('enable_request_id_tracking') ?? TRUE,
+      '#disabled' => !$can_edit_performance,
+    ];
+
+    return parent::buildForm($form, $form_state);
+  }
+
+  /**
+   * {@inheritdoc}
+   */
+  public function validateForm(array &$form, FormStateInterface $form_state) {
+    parent::validateForm($form, $form_state);
+
+    $site_uuid = $form_state->getValue('site_uuid');
+    $publishable_key = $form_state->getValue('publishable_key');
+    $secret_key = $form_state->getValue('secret_key');
+
+    // Validate Site UUID format.
+    if ($site_uuid && !preg_match('/^([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|[0-9a-f]{32})$/i', $site_uuid)) {
+      $form_state->setErrorByName('site_uuid', $this->t('Site UUID must be in valid UUID format (with or without hyphens).'));
+    }
+
+    // Validate publishable key is not empty.
+    if (empty($publishable_key)) {
+      $form_state->setErrorByName('publishable_key', $this->t('Publishable key is required.'));
+    }
+
+    // Validate secret key if provided (required for new configurations).
+    $current_secret_status = $this->getSecretKeyStatus();
+    if (empty($secret_key) && !$current_secret_status['has_key']) {
+      $form_state->setErrorByName('secret_key', $this->t('Secret key is required.'));
+    }
+
+    // Additional validation for credential changes.
+    $this->validateCredentialChanges($form_state);
+
+    // Validate security settings.
+    $this->validateSecuritySettings($form_state);
+
+    // Validate default sender email if mail routing is enabled.
+    $enable_mail_routing = $form_state->getValue('enable_mail_routing');
+    $default_sender_email = $form_state->getValue('default_sender_email');
+    
+    if ($enable_mail_routing && empty($default_sender_email)) {
+      $form_state->setErrorByName('default_sender_email', $this->t('Default sender email is required when mail routing is enabled.'));
+    }
+  }
+
+  /**
+   * {@inheritdoc}
+   */
+  public function submitForm(array &$form, FormStateInterface $form_state) {
+    $config = $this->config('bento_sdk.settings');
+    $changes = [];
+
+    // Track credential changes.
+    if ($this->hasCredentialEditAccess()) {
+      $old_site_uuid = $config->get('site_uuid');
+      $new_site_uuid = $form_state->getValue('site_uuid');
+      if ($old_site_uuid !== $new_site_uuid) {
+        $changes[] = 'site_uuid';
+        $config->set('site_uuid', $new_site_uuid);
+      }
+
+      $old_publishable_key = $config->get('publishable_key');
+      $new_publishable_key = $form_state->getValue('publishable_key');
+      if ($old_publishable_key !== $new_publishable_key) {
+        $changes[] = 'publishable_key';
+        $config->set('publishable_key', $new_publishable_key);
+      }
+      
+      // Only update secret key if a new one was provided.
+      $secret_key = $form_state->getValue('secret_key');
+      if (!empty($secret_key)) {
+        $changes[] = 'secret_key';
+        // Store secret key securely using State API instead of config.
+        $this->storeSecretKeySecurely($secret_key);
+        // Clear any existing config-stored secret key.
+        $config->clear('secret_key');
+      }
+    }
+
+    // Track mail setting changes.
+    if ($this->hasMailEditAccess()) {
+      $old_mail_routing = $config->get('enable_mail_routing');
+      $new_mail_routing = $form_state->getValue('enable_mail_routing');
+      if ($old_mail_routing !== $new_mail_routing) {
+        $changes[] = 'enable_mail_routing';
+        $config->set('enable_mail_routing', $new_mail_routing);
+      }
+
+      $old_sender_email = $config->get('default_sender_email');
+      $new_sender_email = $form_state->getValue('default_sender_email');
+      if ($old_sender_email !== $new_sender_email) {
+        $changes[] = 'default_sender_email';
+        $config->set('default_sender_email', $new_sender_email);
+      }
+    }
+
+    // Track validation setting changes.
+    if ($this->hasValidationEditAccess()) {
+      $validation_fields = [
+        'enable_email_validation',
+        'email_validation_cache_valid_duration',
+        'email_validation_cache_invalid_duration',
+      ];
+
+      foreach ($validation_fields as $field) {
+        $old_value = $config->get($field);
+        $new_value = $form_state->getValue($field);
+        if ($old_value !== $new_value) {
+          $changes[] = $field;
+          $config->set($field, $new_value);
+        }
+      }
+    }
+
+    // Track performance setting changes.
+    if ($this->hasPerformanceEditAccess()) {
+      $performance_fields = [
+        'enable_rate_limiting',
+        'max_requests_per_minute',
+        'max_requests_per_hour',
+        'enable_circuit_breaker',
+        'circuit_breaker_failure_threshold',
+        'circuit_breaker_timeout',
+        'ssl_verification',
+        'request_timeout',
+        'connection_timeout',
+        'enable_request_id_tracking',
+      ];
+
+      foreach ($performance_fields as $field) {
+        $old_value = $config->get($field);
+        $new_value = $form_state->getValue($field);
+        if ($old_value !== $new_value) {
+          $changes[] = $field;
+          $config->set($field, $new_value);
+        }
+      }
+    }
+    
+    $config->save();
+
+    // Log configuration changes for audit trail.
+    if (!empty($changes)) {
+      $this->logConfigurationChanges($changes);
+    }
+
+    parent::submitForm($form, $form_state);
+  }
+
+  /**
+   * Gets the current secret key configuration status.
+   *
+   * @return array
+   *   Array with 'has_key' boolean and 'source' string indicating where the key is stored.
+   */
+  private function getSecretKeyStatus(): array {
+    // Check environment variable first (highest priority).
+    if (!empty($_ENV['BENTO_SECRET_KEY']) || !empty(getenv('BENTO_SECRET_KEY'))) {
+      return [
+        'has_key' => TRUE,
+        'source' => 'environment variable',
+      ];
+    }
+
+    // Check State API (secure storage).
+    if (!empty($this->state->get('bento_sdk.secret_key'))) {
+      return [
+        'has_key' => TRUE,
+        'source' => 'secure storage',
+      ];
+    }
+
+    // Check legacy config storage (deprecated).
+    $config = $this->config('bento_sdk.settings');
+    if (!empty($config->get('secret_key'))) {
+      return [
+        'has_key' => TRUE,
+        'source' => 'configuration (deprecated)',
+      ];
+    }
+
+    return [
+      'has_key' => FALSE,
+      'source' => 'none',
+    ];
+  }
+
+  /**
+   * Stores the secret key securely using State API.
+   *
+   * @param string $secret_key
+   *   The secret key to store.
+   */
+  private function storeSecretKeySecurely(string $secret_key): void {
+    // Store in State API which is not exported with configuration.
+    $this->state->set('bento_sdk.secret_key', $secret_key);
+    
+    // Log the security improvement (without exposing the key).
+    \Drupal::logger('bento_sdk')->info('Secret key updated and stored securely via State API.');
+  }
+
+  /**
+   * Migrates existing secret key from config to secure storage.
+   *
+   * This method automatically moves any secret key stored in configuration
+   * to the more secure State API storage.
+   */
+  private function migrateSecretKeyToSecureStorage(): void {
+    $config = $this->config('bento_sdk.settings');
+    $config_secret = $config->get('secret_key');
+    
+    // Only migrate if there's a key in config and none in secure storage.
+    if (!empty($config_secret) && empty($this->state->get('bento_sdk.secret_key'))) {
+      // Check if environment variable is not set (don't override env var).
+      if (empty($_ENV['BENTO_SECRET_KEY']) && empty(getenv('BENTO_SECRET_KEY'))) {
+        $this->storeSecretKeySecurely($config_secret);
+        
+        // Clear the config-stored key.
+        $config->clear('secret_key')->save();
+        
+        \Drupal::logger('bento_sdk')->info('Migrated secret key from configuration to secure storage for improved security.');
+        
+        // Show a message to the admin about the migration.
+        \Drupal::messenger()->addStatus($this->t('Your secret key has been automatically migrated to secure storage for improved security.'));
+      }
+    }
+  }
+
+  /**
+   * Checks if the current user can edit credentials.
+   *
+   * @return bool
+   *   TRUE if the user has permission to edit credentials.
+   */
+  private function hasCredentialEditAccess(): bool {
+    return $this->currentUser->hasPermission('administer bento sdk') ||
+           $this->currentUser->hasPermission('edit bento sdk credentials');
+  }
+
+  /**
+   * Checks if the current user can edit mail settings.
+   *
+   * @return bool
+   *   TRUE if the user has permission to edit mail settings.
+   */
+  private function hasMailEditAccess(): bool {
+    return $this->currentUser->hasPermission('administer bento sdk') ||
+           $this->currentUser->hasPermission('edit bento sdk mail settings');
+  }
+
+  /**
+   * Checks if the current user can edit validation settings.
+   *
+   * @return bool
+   *   TRUE if the user has permission to edit validation settings.
+   */
+  private function hasValidationEditAccess(): bool {
+    return $this->currentUser->hasPermission('administer bento sdk') ||
+           $this->currentUser->hasPermission('edit bento sdk validation settings');
+  }
+
+  /**
+   * Checks if the current user can edit performance settings.
+   *
+   * @return bool
+   *   TRUE if the user has permission to edit performance settings.
+   */
+  private function hasPerformanceEditAccess(): bool {
+    return $this->currentUser->hasPermission('administer bento sdk') ||
+           $this->currentUser->hasPermission('edit bento sdk performance settings');
+  }
+
+  /**
+   * Logs configuration changes for audit trail.
+   *
+   * @param array $changes
+   *   Array of changed configuration keys.
+   */
+  private function logConfigurationChanges(array $changes): void {
+    $user_id = $this->currentUser->id();
+    $username = $this->currentUser->getAccountName();
+    $user_email = $this->currentUser->getEmail();
+    
+    // Log each change with user context.
+    $this->logger->notice('Bento SDK configuration updated by user @username (ID: @uid, Email: @email). Changed fields: @changes', [
+      '@username' => $username,
+      '@uid' => $user_id,
+      '@email' => $user_email ? $this->sanitizeEmailForLogging($user_email) : 'N/A',
+      '@changes' => implode(', ', $changes),
+    ]);
+
+    // Log sensitive credential changes with higher severity.
+    $credential_fields = ['site_uuid', 'publishable_key', 'secret_key'];
+    $credential_changes = array_intersect($changes, $credential_fields);
+    
+    if (!empty($credential_changes)) {
+      $this->logger->warning('Bento SDK credentials modified by user @username (ID: @uid). Changed credentials: @credentials', [
+        '@username' => $username,
+        '@uid' => $user_id,
+        '@credentials' => implode(', ', $credential_changes),
+      ]);
+    }
+  }
+
+  /**
+   * Validates credential changes for additional security.
+   *
+   * @param \Drupal\Core\Form\FormStateInterface $form_state
+   *   The form state.
+   */
+  private function validateCredentialChanges(FormStateInterface $form_state): void {
+    if (!$this->hasCredentialEditAccess()) {
+      return;
+    }
+
+    $config = $this->config('bento_sdk.settings');
+    $site_uuid = $form_state->getValue('site_uuid');
+    $publishable_key = $form_state->getValue('publishable_key');
+    $secret_key = $form_state->getValue('secret_key');
+
+    // Check if credentials are being changed.
+    $credentials_changed = (
+      $config->get('site_uuid') !== $site_uuid ||
+      $config->get('publishable_key') !== $publishable_key ||
+      !empty($secret_key)
+    );
+
+    if ($credentials_changed) {
+      // Validate that the user has sufficient permissions for credential changes.
+      if (!$this->currentUser->hasPermission('edit bento sdk credentials') && 
+          !$this->currentUser->hasPermission('administer bento sdk')) {
+        $form_state->setErrorByName('api_credentials', $this->t('You do not have permission to modify API credentials.'));
+        return;
+      }
+
+      // Log the credential change attempt.
+      $this->logger->info('Credential change attempt by user @username (ID: @uid)', [
+        '@username' => $this->currentUser->getAccountName(),
+        '@uid' => $this->currentUser->id(),
+      ]);
+    }
+  }
+
+  /**
+   * Validates security settings for potential issues.
+   *
+   * @param \Drupal\Core\Form\FormStateInterface $form_state
+   *   The form state.
+   */
+  private function validateSecuritySettings(FormStateInterface $form_state): void {
+    if (!$this->hasPerformanceEditAccess()) {
+      return;
+    }
+
+    $ssl_verification = $form_state->getValue('ssl_verification');
+    $request_timeout = $form_state->getValue('request_timeout');
+    $connection_timeout = $form_state->getValue('connection_timeout');
+
+    // Warn about disabling SSL verification.
+    if (!$ssl_verification) {
+      \Drupal::messenger()->addWarning($this->t('SSL certificate verification is disabled. This should only be used in development environments with self-signed certificates.'));
+    }
+
+    // Validate timeout values.
+    if ($connection_timeout >= $request_timeout) {
+      $form_state->setErrorByName('connection_timeout', $this->t('Connection timeout must be less than request timeout.'));
+    }
+
+    // Warn about very short timeouts.
+    if ($request_timeout < 10) {
+      \Drupal::messenger()->addWarning($this->t('Very short request timeouts may cause API calls to fail unnecessarily.'));
+    }
+
+    // Warn about very long timeouts.
+    if ($request_timeout > 120) {
+      \Drupal::messenger()->addWarning($this->t('Very long request timeouts may impact user experience if the API is slow to respond.'));
+    }
+  }
+
+}

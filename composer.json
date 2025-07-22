@@ -1,0 +1,22 @@
+{
+  "name": "drupal/bento_sdk",
+  "description": "Official Bento API integration for Drupal 10",
+  "type": "drupal-module",
+  "license": "GPL-2.0-or-later",
+  "require": {
+    "php": ">=8.1",
+    "drupal/core": "^10.2",
+    "guzzlehttp/guzzle": "^7.0"
+  },
+  "autoload": {
+    "psr-4": {
+      "Drupal\\bento_sdk\\": "src/"
+    }
+  },
+  "extra": {
+    "drupal": {
+      "version": "1.0.0-dev",
+      "datestamp": "1642694400"
+    }
+  }
+}

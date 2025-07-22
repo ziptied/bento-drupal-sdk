@@ -1,0 +1,13 @@
+# Services for the Bento SDK module.
+services:
+  bento.sdk:
+    class: Drupal\bento_sdk\BentoService
+    arguments: ['@bento_sdk.client', '@config.factory', '@logger.channel.bento_sdk', '@cache.default', '@state']
+
+  bento_sdk.client:
+    class: Drupal\bento_sdk\Client\BentoClient
+    arguments: ['@http_client', '@logger.channel.bento_sdk', '@cache.default', '@config.factory']
+
+  logger.channel.bento_sdk:
+    parent: logger.channel_base
+    arguments: ['bento_sdk']
