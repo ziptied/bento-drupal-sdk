@@ -183,6 +183,57 @@ class BentoService {
   }
 
   /**
+   * Fetches the list of verified authors from Bento API.
+   *
+   * @return array
+   *   Array of author email addresses, or empty array on failure.
+   */
+  public function fetchAuthors(): array {
+    if (!$this->isConfigured()) {
+      $this->logger->error('Bento SDK is not properly configured. Please configure API credentials.');
+      return [];
+    }
+
+    // Check cache first
+    $cache_key = 'bento_authors_list';
+    $cached = $this->cache->get($cache_key);
+    if ($cached && $cached->data) {
+      $this->logger->info('Retrieved authors list from cache');
+      return $cached->data;
+    }
+
+    // Ensure credentials are loaded
+    $this->loadCredentials();
+
+    try {
+      $authors = $this->client->fetchAuthors();
+      
+      // Cache the result for 1 hour
+      $this->cache->set($cache_key, $authors, time() + 3600);
+      
+      $this->logger->info('Successfully fetched @count authors from Bento API', [
+        '@count' => count($authors),
+      ]);
+      
+      return $authors;
+    }
+    catch (\Exception $e) {
+      $this->logger->error('Failed to fetch authors from Bento API: @message', [
+        '@message' => $this->sanitizeErrorMessage($e->getMessage()),
+      ]);
+      return [];
+    }
+  }
+
+  /**
+   * Clears the cached authors list.
+   */
+  public function clearAuthorsCache(): void {
+    $this->cache->delete('bento_authors_list');
+    $this->logger->info('Authors cache cleared');
+  }
+
+  /**
    * Loads credentials from configuration into the HTTP client.
    */
   private function loadCredentials(): void {
