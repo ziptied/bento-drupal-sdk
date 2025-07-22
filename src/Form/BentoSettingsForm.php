@@ -389,6 +389,13 @@ class BentoSettingsForm extends ConfigFormBase {
         ],
       ];
 
+      // Add status display similar to test email
+      $form['test_events']['queue_status'] = [
+        '#type' => 'markup',
+        '#markup' => '<div id="test-events-status" class="test-email-state"></div>',
+        '#weight' => 5,
+      ];
+
       // Add messages container for AJAX responses
       $form['test_events']['messages'] = [
         '#type' => 'markup',
@@ -1395,6 +1402,8 @@ class BentoSettingsForm extends ConfigFormBase {
        if (!$this->hasTestEventsAccess()) {
          $error_message = $this->t('You do not have permission to queue test events.');
          $response->addCommand(new MessageCommand($error_message, 'error'));
+         $status_markup = '<div class="messages messages--error">✗ Permission denied.</div>';
+         $response->addCommand(new ReplaceCommand('#test-events-status', $status_markup));
          return $response;
        }
 
@@ -1402,6 +1411,8 @@ class BentoSettingsForm extends ConfigFormBase {
        if (!$this->isConfigured()) {
          $error_message = $this->t('Please configure API credentials before queuing test events.');
          $response->addCommand(new MessageCommand($error_message, 'error'));
+         $status_markup = '<div class="messages messages--error">✗ API not configured.</div>';
+         $response->addCommand(new ReplaceCommand('#test-events-status', $status_markup));
          return $response;
        }
 
@@ -1410,6 +1421,8 @@ class BentoSettingsForm extends ConfigFormBase {
        if (empty($selected_events)) {
          $error_message = $this->t('Please select at least one event type to queue.');
          $response->addCommand(new MessageCommand($error_message, 'error'));
+         $status_markup = '<div class="messages messages--error">✗ No events selected.</div>';
+         $response->addCommand(new ReplaceCommand('#test-events-status', $status_markup));
          return $response;
        }
 
@@ -1443,6 +1456,33 @@ class BentoSettingsForm extends ConfigFormBase {
          $response->addCommand(new MessageCommand($warning_message, 'warning'));
        }
 
+       // Update status display
+       $total_selected = count($selected_events);
+       if ($queued_count === $total_selected && $failed_count === 0) {
+         $status_message = $this->t('✓ All @count test events queued successfully.', [
+           '@count' => $queued_count,
+         ]);
+         $status_class = 'messages messages--status';
+       } elseif ($queued_count > 0 && $failed_count > 0) {
+         $status_message = $this->t('⚠ @queued of @total events queued (@failed failed).', [
+           '@queued' => $queued_count,
+           '@total' => $total_selected,
+           '@failed' => $failed_count,
+         ]);
+         $status_class = 'messages messages--warning';
+       } elseif ($failed_count === $total_selected) {
+         $status_message = $this->t('✗ Failed to queue all @count test events.', [
+           '@count' => $total_selected,
+         ]);
+         $status_class = 'messages messages--error';
+       } else {
+         $status_message = $this->t('No events were processed.');
+         $status_class = 'messages messages--warning';
+       }
+
+       $status_markup = '<div class="' . $status_class . '">' . $status_message . '</div>';
+       $response->addCommand(new ReplaceCommand('#test-events-status', $status_markup));
+
        // Log the action for audit trail
        $this->logger->info('Test events queued via AJAX by user @username (ID: @uid). Queued: @queued, Failed: @failed', [
          '@username' => $this->currentUser->getAccountName(),
@@ -1456,6 +1496,9 @@ class BentoSettingsForm extends ConfigFormBase {
          '@message' => $e->getMessage(),
        ]);
        $response->addCommand(new MessageCommand($error_message, 'error'));
+       
+       $status_markup = '<div class="messages messages--error">✗ System error occurred.</div>';
+       $response->addCommand(new ReplaceCommand('#test-events-status', $status_markup));
 
        $this->logger->error('Exception while queuing test events via AJAX: @message', [
          '@message' => $e->getMessage(),
