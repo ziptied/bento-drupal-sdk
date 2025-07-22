@@ -9,6 +9,9 @@ use Drupal\Core\Session\AccountInterface;
 use Drupal\Core\Access\AccessResult;
 use Psr\Log\LoggerInterface;
 use Drupal\bento_sdk\BentoSanitizationTrait;
+use Drupal\Core\Ajax\AjaxResponse;
+use Drupal\Core\Ajax\ReplaceCommand;
+use Drupal\Core\Ajax\MessageCommand;
 
 /**
  * Configuration form for Bento SDK settings.
@@ -210,6 +213,8 @@ class BentoSettingsForm extends ConfigFormBase {
           ':input[name="enable_mail_routing"]' => ['checked' => TRUE],
         ],
       ],
+      '#prefix' => '<div id="authors-dropdown-wrapper">',
+      '#suffix' => '</div>',
     ];
 
     // Add refresh button
@@ -224,6 +229,16 @@ class BentoSettingsForm extends ConfigFormBase {
       ],
       '#attributes' => [
         'class' => ['button--small'],
+      ],
+      '#ajax' => [
+        'callback' => '::refreshAuthorsCallback',
+        'wrapper' => 'authors-dropdown-wrapper',
+        'method' => 'replace',
+        'effect' => 'fade',
+        'progress' => [
+          'type' => 'throbber',
+          'message' => $this->t('Refreshing authors...'),
+        ],
       ],
     ];
 
@@ -621,6 +636,78 @@ class BentoSettingsForm extends ConfigFormBase {
     catch (\Exception $e) {
       return FALSE;
     }
+  }
+
+  /**
+   * AJAX callback to refresh the authors dropdown.
+   *
+   * @param array $form
+   *   The form array.
+   * @param \Drupal\Core\Form\FormStateInterface $form_state
+   *   The form state.
+   *
+   * @return \Drupal\Core\Ajax\AjaxResponse
+   *   The AJAX response.
+   */
+  public function refreshAuthorsCallback(array &$form, FormStateInterface $form_state) {
+    $response = new AjaxResponse();
+
+    try {
+      // Clear the authors cache
+      $bento_service = \Drupal::service('bento.sdk');
+      $bento_service->clearAuthorsCache();
+
+      // Fetch fresh authors
+      $authors = $bento_service->fetchAuthors();
+
+      // Update the dropdown options
+      $options = [];
+      foreach ($authors as $email) {
+        $options[$email] = $email;
+      }
+
+      // Create the updated dropdown element
+      $updated_element = [
+        '#type' => 'select',
+        '#title' => $this->t('Default author email'),
+        '#description' => $this->t('Select a verified sender email address from your Bento account. This will be used as the default "from" address for emails sent through Bento.'),
+        '#options' => $options,
+        '#default_value' => $form_state->getValue('default_author_email'),
+        '#disabled' => !$this->hasMailEditAccess() || !$this->isConfigured(),
+        '#empty_option' => $this->t('- Select an author -'),
+        '#empty_value' => '',
+        '#states' => [
+          'visible' => [
+            ':input[name="enable_mail_routing"]' => ['checked' => TRUE],
+          ],
+        ],
+        '#prefix' => '<div id="authors-dropdown-wrapper">',
+        '#suffix' => '</div>',
+      ];
+
+      // Add success message
+      $message = $this->t('Authors list refreshed successfully. Found @count authors.', [
+        '@count' => count($authors),
+      ]);
+      $response->addCommand(new MessageCommand($message, 'status'));
+
+      // Replace the dropdown
+      $response->addCommand(new ReplaceCommand('#authors-dropdown-wrapper', \Drupal::service('renderer')->render($updated_element)));
+
+    } catch (\Exception $e) {
+      // Add error message
+      $error_message = $this->t('Failed to refresh authors: @message', [
+        '@message' => $e->getMessage(),
+      ]);
+      $response->addCommand(new MessageCommand($error_message, 'error'));
+
+      // Log the error
+      $this->logger->error('Failed to refresh authors via AJAX: @message', [
+        '@message' => $e->getMessage(),
+      ]);
+    }
+
+    return $response;
   }
 
   /**
