@@ -69,9 +69,6 @@ bento_sdk.settings:
     enable_webform_integration:
       type: boolean
       label: 'Enable webform integration'
-    webform_event_type:
-      type: string
-      label: 'Default webform event type'
     retry:
       type: mapping
       label: 'Queue retry configuration'

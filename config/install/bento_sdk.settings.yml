@@ -22,7 +22,6 @@ connection_timeout: 10
 enable_request_id_tracking: true
 # Webform integration settings
 enable_webform_integration: true
-webform_event_type: '$webform_submission'
 # Queue retry configuration
 retry:
   max_attempts: 3           # Maximum number of retry attempts

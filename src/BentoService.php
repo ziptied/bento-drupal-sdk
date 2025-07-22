@@ -1464,12 +1464,12 @@ class BentoService {
    *
    * Extracts email, first_name, last_name and other form data to create
    * a properly formatted Bento event. Email is required for processing.
-   * Uses the configured event type from settings.
+   * Uses the webform ID as the event type automatically.
    *
    * @param array $form_data
    *   The form data from the webform submission.
    * @param string $webform_id
-   *   The webform ID for tracking purposes.
+   *   The webform machine name, used to generate the event type.
    *
    * @return array|null
    *   Formatted event data or NULL if no valid email found.
@@ -1481,9 +1481,8 @@ class BentoService {
       return NULL;
     }
     
-    // Get configured event type
-    $config = $this->configFactory->get('bento_sdk.settings');
-    $event_type = $config->get('webform_event_type') ?: '$webform_submission';
+    // Generate event type from webform ID
+    $event_type = $this->formatWebformEventType($webform_id);
     
     // Start building the event
     $event = [
@@ -1507,6 +1506,7 @@ class BentoService {
     // Map remaining data to event details
     $details = [
       'webform_id' => $webform_id,
+      'original_webform_id' => $webform_id, // Keep original for reference
     ];
     
     $form_data_details = [];
@@ -1557,19 +1557,54 @@ class BentoService {
   }
 
   /**
+   * Convert Webform ID to a Bento-compatible event type.
+   *
+   * Sanitizes the webform machine name and formats it as a Bento event type
+   * with the required $ prefix. Ensures the event type follows Bento's
+   * naming conventions.
+   *
+   * @param string $webform_id
+   *   The webform machine name.
+   *
+   * @return string
+   *   Formatted event type (e.g., 'contact_form' becomes '$contact_form').
+   */
+  private function formatWebformEventType(string $webform_id): string {
+    // Sanitize the webform ID to ensure it's safe for Bento
+    // Convert to lowercase and replace any non-alphanumeric characters with underscores
+    $sanitized = preg_replace('/[^a-z0-9_-]/', '_', strtolower($webform_id));
+    
+    // Remove multiple consecutive underscores
+    $sanitized = preg_replace('/_+/', '_', $sanitized);
+    
+    // Remove leading/trailing underscores
+    $sanitized = trim($sanitized, '_');
+    
+    // Ensure we have a valid event name
+    if (empty($sanitized)) {
+      $sanitized = 'webform_submission';
+    }
+    
+    // Add the $ prefix for Bento system events
+    return '$' . $sanitized;
+  }
+
+  /**
    * Send a test webform event with sample data.
    *
    * Creates a mock webform submission event for testing the integration.
    * This method bypasses the actual webform submission process and directly
-   * creates a properly formatted event using the configured event type.
+   * creates a properly formatted event using the webform ID as event type.
    *
    * @param string $email
    *   The email address to use for the test event.
+   * @param string $test_webform_id
+   *   Optional webform ID to use for testing. Defaults to 'admin_test_form'.
    *
    * @return bool
    *   TRUE if the test event was sent successfully, FALSE otherwise.
    */
-  public function sendTestWebformEvent(string $email): bool {
+  public function sendTestWebformEvent(string $email, string $test_webform_id = 'admin_test_form'): bool {
     if (!$this->isConfigured()) {
       $this->logger->error('Cannot send test webform event - Bento SDK is not properly configured.');
       return FALSE;
@@ -1597,7 +1632,8 @@ class BentoService {
       ];
 
       // Use the same mapping logic as real webform submissions
-      $event_data = $this->mapWebformDataToEvent($sample_form_data, 'admin_test_form');
+      // The webform ID will be automatically converted to the event type
+      $event_data = $this->mapWebformDataToEvent($sample_form_data, $test_webform_id);
 
       if (!$event_data) {
         $this->logger->error('Failed to create test webform event data - no valid email found.');
@@ -1613,9 +1649,10 @@ class BentoService {
       $success = $this->sendEvent($event_data);
 
       if ($success) {
-        $this->logger->info('Test webform event sent successfully for @email using event type @type', [
+        $this->logger->info('Test webform event sent successfully for @email using event type @type (from webform @webform_id)', [
           '@email' => $this->sanitizeEmailForLogging($email),
           '@type' => $event_data['type'],
+          '@webform_id' => $test_webform_id,
         ]);
       }
 
