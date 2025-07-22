@@ -16,6 +16,7 @@ use Drupal\bento_sdk\BentoSanitizationTrait;
  * and interact with Bento services.
  */
 class BentoService {
+  use BentoSanitizationTrait;
 
   /**
    * The Bento HTTP client.
@@ -58,6 +59,11 @@ class BentoService {
    * @var bool
    */
   private bool $credentialsLoaded = FALSE;
+
+  /**
+   * @var string|null
+   */
+  private $lastError = NULL;
 
   /**
    * Constructs a new BentoService.
@@ -497,37 +503,52 @@ class BentoService {
    *   TRUE if the email was sent successfully, FALSE otherwise.
    */
   public function sendTransactionalEmail(array $email_data): bool {
+    // Clear any previous error
+    $this->clearLastError();
+    
     if (!$this->isConfigured()) {
-      $this->logger->error('Bento SDK is not properly configured. Please configure API credentials.');
+      $error_message = 'Bento SDK is not properly configured. Please configure API credentials.';
+      $this->lastError = $error_message;
+      $this->logger->error($error_message);
       return FALSE;
     }
 
     // Validate required fields.
     if (empty($email_data['to'])) {
-      $this->logger->error('Recipient email (to) is required for transactional emails.');
+      $error_message = 'Recipient email (to) is required for transactional emails.';
+      $this->lastError = $error_message;
+      $this->logger->error($error_message);
       return FALSE;
     }
 
     if (empty($email_data['subject'])) {
-      $this->logger->error('Subject is required for transactional emails.');
+      $error_message = 'Subject is required for transactional emails.';
+      $this->lastError = $error_message;
+      $this->logger->error($error_message);
       return FALSE;
     }
 
     // Validate email format.
     if (!filter_var($email_data['to'], FILTER_VALIDATE_EMAIL)) {
-      $this->logger->error('Invalid recipient email format: @email', ['@email' => $this->sanitizeEmailForLogging($email_data['to'])]);
+      $error_message = 'Invalid recipient email format: ' . $this->sanitizeEmailForLogging($email_data['to']);
+      $this->lastError = $error_message;
+      $this->logger->error($error_message);
       return FALSE;
     }
 
     // Validate sender email if provided.
     if (!empty($email_data['from']) && !filter_var($email_data['from'], FILTER_VALIDATE_EMAIL)) {
-      $this->logger->error('Invalid sender email format: @email', ['@email' => $this->sanitizeEmailForLogging($email_data['from'])]);
+      $error_message = 'Invalid sender email format: ' . $this->sanitizeEmailForLogging($email_data['from']);
+      $this->lastError = $error_message;
+      $this->logger->error($error_message);
       return FALSE;
     }
 
     // Ensure at least one content type is provided.
     if (empty($email_data['html_body']) && empty($email_data['text_body'])) {
-      $this->logger->error('Either html_body or text_body must be provided for transactional emails.');
+      $error_message = 'Either html_body or text_body must be provided for transactional emails.';
+      $this->lastError = $error_message;
+      $this->logger->error($error_message);
       return FALSE;
     }
 
@@ -557,9 +578,18 @@ class BentoService {
       return TRUE;
     }
     catch (\Exception $e) {
-      $this->logger->error('Failed to send Bento transactional email: @message', [
-        '@message' => $this->sanitizeErrorMessage($e->getMessage()),
-      ]);
+      $error_message = 'Failed to send Bento transactional email: ' . $this->sanitizeErrorMessage($e->getMessage());
+      $this->lastError = $error_message;
+      
+      $this->logger->error($error_message);
+      
+      // Log additional error details if available
+      if (method_exists($e, 'getResponse') && $e->getResponse()) {
+        $response_details = 'Bento API error response: ' . $e->getResponse()->getStatusCode() . ' - ' . $e->getResponse()->getBody()->getContents();
+        $this->lastError .= ' | ' . $response_details;
+        $this->logger->error($response_details);
+      }
+      
       return FALSE;
     }
   }
@@ -1270,6 +1300,23 @@ class BentoService {
     ]);
     
     sleep($delay_seconds);
+  }
+
+  /**
+   * Get the last error that occurred.
+   *
+   * @return string|null
+   *   The last error message or NULL if no error occurred.
+   */
+  public function getLastError(): ?string {
+    return $this->lastError;
+  }
+
+  /**
+   * Clear the last error.
+   */
+  public function clearLastError(): void {
+    $this->lastError = NULL;
   }
 
 }

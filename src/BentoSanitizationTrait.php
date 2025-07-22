@@ -56,8 +56,7 @@ trait BentoSanitizationTrait {
    * @return string
    *   The sanitized email address.
    */
-  private function sanitizeEmailForLogging(string $email): string {
-    // For privacy, only show the domain and first character of local part.
+   protected function sanitizeEmailForLogging(string $email): string {    // For privacy, only show the domain and first character of local part.
     if (filter_var($email, FILTER_VALIDATE_EMAIL)) {
       $parts = explode('@', $email);
       if (count($parts) === 2) {

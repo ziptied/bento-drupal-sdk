@@ -42,6 +42,9 @@ bento_sdk.settings:
     max_requests_per_hour:
       type: integer
       label: 'Maximum API requests per hour'
+    max_test_emails_per_hour:
+      type: integer
+      label: 'Maximum test emails per hour'
     enable_circuit_breaker:
       type: boolean
       label: 'Enable circuit breaker pattern'

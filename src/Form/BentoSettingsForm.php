@@ -27,21 +27,21 @@ class BentoSettingsForm extends ConfigFormBase {
    *
    * @var \Drupal\Core\State\StateInterface
    */
-  protected StateInterface $state;
+  protected $state;
 
   /**
    * The current user account.
    *
    * @var \Drupal\Core\Session\AccountInterface
    */
-  protected AccountInterface $currentUser;
+  protected $currentUser;
 
   /**
    * The logger service.
    *
    * @var \Psr\Log\LoggerInterface
    */
-  protected LoggerInterface $logger;
+  protected $logger;
 
   /**
    * {@inheritdoc}
@@ -225,6 +225,7 @@ class BentoSettingsForm extends ConfigFormBase {
       ],
       '#prefix' => '<div id="authors-dropdown-wrapper">',
       '#suffix' => '</div>',
+
     ];
 
     // Add refresh button
@@ -251,6 +252,106 @@ class BentoSettingsForm extends ConfigFormBase {
         ],
       ],
     ];
+
+    // Add visual separator
+    $form['mail_settings']['test_separator'] = [
+      '#type' => 'markup',
+      '#markup' => '<hr class="test-email-separator">',
+      '#weight' => 10,
+      '#states' => [
+        'visible' => [
+          ':input[name="enable_mail_routing"]' => ['checked' => TRUE],
+        ],
+      ],
+    ];
+
+    // Add CSS for test email section styling
+    $form['mail_settings']['#attached']['html_head'][] = [
+      [
+        '#tag' => 'style',
+        '#value' => '
+          .test-email-separator {
+            margin: 20px 0;
+            border: 0;
+            border-top: 1px solid #ccc;
+          }
+          .test-email-section {
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 4px;
+            margin-top: 15px;
+          }
+          #test-email-messages {
+            margin-top: 10px;
+          }
+          #test-email-messages .messages {
+            margin: 10px 0;
+          }
+          .test-email-state {
+            margin-top: 10px;
+            padding: 8px 12px;
+            border-radius: 4px;
+            font-size: 0.9em;
+          }
+          .test-email-state:empty {
+            display: none;
+          }
+          #test-email-button:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+          }
+          #test-email-button:not(:disabled) {
+            background-color: #0071b8;
+            border-color: #0071b8;
+          }
+        ',
+      ],
+      'bento-sdk-test-email-styles'
+    ];
+
+    // Add isolated test email section with basic JavaScript
+    $form['mail_settings']['test_email_section'] = [
+      '#type' => 'fieldset',
+      '#title' => $this->t('Test Email Configuration'),
+      '#description' => $this->t('To test email delivery, ensure API credentials are configured and an author is selected.'),
+      '#weight' => 11,
+      '#states' => [
+        'visible' => [
+          ':input[name="enable_mail_routing"]' => ['checked' => TRUE],
+        ],
+      ],
+    ];
+
+    // Add button state display
+    $form['mail_settings']['test_email_section']['button_state'] = [
+      '#type' => 'markup',
+      '#markup' => '<div id="test-email-button-state" class="test-email-state">' . 
+        ($this->canSendTestEmail() ? $this->t('Ready to send test email.') : $this->t('Please configure API credentials and select an author first.')) . 
+        '</div>',
+      '#weight' => 0,
+    ];
+
+    // Add isolated test email button
+    $form['mail_settings']['test_email_section']['send_test_email'] = [
+      '#type' => 'button',
+      '#value' => $this->t('Send Test Email'),
+      '#disabled' => !$this->canSendTestEmail(),
+      '#attributes' => [
+        'class' => ['button--primary'],
+        'id' => 'isolated-test-email-btn',
+      ],
+      '#weight' => 1,
+    ];
+
+    // Add messages container
+    $form['mail_settings']['test_email_section']['test_messages'] = [
+      '#type' => 'markup',
+      '#markup' => '<div id="test-email-messages" style="margin-top: 10px;"></div>',
+      '#weight' => 2,
+    ];
+
+    // Attach external JavaScript file for test email functionality
+    $form['mail_settings']['test_email_section']['#attached']['library'][] = 'bento_sdk/test-email';
 
     $form['validation_settings'] = [
       '#type' => 'fieldset',
@@ -348,6 +449,21 @@ class BentoSettingsForm extends ConfigFormBase {
       ],
     ];
 
+    $form['rate_limiting']['max_test_emails_per_hour'] = [
+      '#type' => 'number',
+      '#title' => $this->t('Maximum test emails per hour'),
+      '#description' => $this->t('Maximum number of test emails allowed per user per hour. Default: 5.'),
+      '#default_value' => $config->get('max_test_emails_per_hour') ?: 5,
+      '#min' => 1,
+      '#max' => 20,
+      '#disabled' => !$can_edit_performance,
+      '#states' => [
+        'visible' => [
+          ':input[name="enable_rate_limiting"]' => ['checked' => TRUE],
+        ],
+      ],
+    ];
+
     $form['rate_limiting']['enable_circuit_breaker'] = [
       '#type' => 'checkbox',
       '#title' => $this->t('Enable circuit breaker'),
@@ -432,6 +548,9 @@ class BentoSettingsForm extends ConfigFormBase {
       '#disabled' => !$can_edit_performance,
     ];
 
+    // Attach AJAX library to ensure AJAX functionality works
+    $form['#attached']['library'][] = 'core/drupal.ajax';
+    
     return parent::buildForm($form, $form_state);
   }
 
@@ -598,6 +717,7 @@ class BentoSettingsForm extends ConfigFormBase {
         'enable_rate_limiting',
         'max_requests_per_minute',
         'max_requests_per_hour',
+        'max_test_emails_per_hour',
         'enable_circuit_breaker',
         'circuit_breaker_failure_threshold',
         'circuit_breaker_timeout',
@@ -674,6 +794,82 @@ class BentoSettingsForm extends ConfigFormBase {
   }
 
   /**
+   * Checks if test email can be sent.
+   *
+   * @return bool
+   *   TRUE if test email can be sent, FALSE otherwise.
+   */
+  private function canSendTestEmail(): bool {
+    // Check if user has permission
+    if (!$this->hasMailEditAccess()) {
+      return FALSE;
+    }
+
+    // Check if Bento is configured
+    if (!$this->isConfigured()) {
+      return FALSE;
+    }
+
+    // Check if an author is selected
+    $config = $this->config('bento_sdk.settings');
+    $selected_author = $config->get('default_author_email');
+    
+    if (empty($selected_author)) {
+      return FALSE;
+    }
+
+    // Validate the selected author email
+    if (!filter_var($selected_author, FILTER_VALIDATE_EMAIL)) {
+      return FALSE;
+    }
+
+    // Check rate limiting
+    $rate_limit = $this->checkTestEmailRateLimit();
+    if (!$rate_limit['allowed']) {
+      return FALSE;
+    }
+
+    return TRUE;
+  }
+
+  /**
+   * Checks if test email rate limit is exceeded.
+   *
+   * @return array
+   *   Array with 'allowed' boolean and 'next_allowed' timestamp.
+   */
+  private function checkTestEmailRateLimit(): array {
+    $user_id = $this->currentUser->id();
+    $cache_key = 'bento_test_email_rate_limit:' . $user_id;
+    
+    // Get rate limiting configuration
+    $config = $this->config('bento_sdk.settings');
+    $max_test_emails_per_hour = $config->get('max_test_emails_per_hour') ?: 5; // Default: 5 per hour
+    
+    // Get current usage
+    $cached = \Drupal::cache()->get($cache_key);
+    $current_usage = $cached ? $cached->data : ['count' => 0, 'reset_time' => time() + 3600];
+    
+    // Check if we need to reset the counter
+    if (time() > $current_usage['reset_time']) {
+      $current_usage = ['count' => 0, 'reset_time' => time() + 3600];
+    }
+    
+    // Check if rate limit is exceeded
+    if ($current_usage['count'] >= $max_test_emails_per_hour) {
+      return [
+        'allowed' => FALSE,
+        'next_allowed' => $current_usage['reset_time'],
+      ];
+    }
+    
+    return [
+      'allowed' => TRUE,
+      'next_allowed' => $current_usage['reset_time'],
+    ];
+  }
+
+  /**
    * AJAX callback to refresh the authors dropdown.
    *
    * @param array $form
@@ -728,6 +924,8 @@ class BentoSettingsForm extends ConfigFormBase {
 
       // Replace the dropdown
       $response->addCommand(new ReplaceCommand('#authors-dropdown-wrapper', \Drupal::service('renderer')->render($updated_element)));
+
+
 
     } catch (\Exception $e) {
       // Add error message
@@ -863,6 +1061,12 @@ class BentoSettingsForm extends ConfigFormBase {
 
     return $response;
   }
+
+
+
+
+
+
 
   /**
    * Gets the current secret key configuration status.

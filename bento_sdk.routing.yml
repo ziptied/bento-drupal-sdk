@@ -7,3 +7,13 @@ bento_sdk.settings:
     _title: 'Bento SDK Settings'
   requirements:
     _custom_access: '\Drupal\bento_sdk\Form\BentoSettingsForm::access'
+
+bento_sdk.test_email:
+  path: '/admin/config/bento/test-email'
+  defaults:
+    _controller: '\Drupal\bento_sdk\Controller\TestEmailController::sendTestEmail'
+  methods: [POST]
+  requirements:
+    _permission: 'administer bento sdk'
+  options:
+    _csrf_token: TRUE
