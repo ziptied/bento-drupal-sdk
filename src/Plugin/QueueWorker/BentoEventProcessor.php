@@ -83,6 +83,8 @@ class BentoEventProcessor extends QueueWorkerBase implements ContainerFactoryPlu
    *   - error_message: (string|null) Last error message
    */
   public function processItem($data): void {
+    $start_time = microtime(TRUE);
+    
     // Validate queue item structure
     if (!$this->isValidQueueItem($data)) {
       throw new \InvalidArgumentException('Invalid queue item structure');
@@ -92,25 +94,58 @@ class BentoEventProcessor extends QueueWorkerBase implements ContainerFactoryPlu
     $event_data = $data['event_data'];
 
     try {
-      // Process the event - this will be implemented in BEN-162
-      // For now, we just log that we received the item
+      // Log start of processing
       $this->logger->info('Processing Bento event from queue: @type for @email', [
         '@type' => $event_data['type'] ?? 'unknown',
         '@email' => $event_data['email'] ?? 'unknown',
       ]);
 
-      // TODO: Implement actual event processing in BEN-162
-      // This is just the infrastructure setup for BEN-160
+      // Send event synchronously via BentoService
+      // We use sendEventSync to avoid re-queuing the same event
+      $success = $this->bentoService->sendEventSync($event_data);
+      
+      if (!$success) {
+        // Get the last error from BentoService if available
+        $error_message = $this->bentoService->getLastError() ?? 'Unknown error occurred';
+        throw new \RuntimeException('Failed to send event to Bento API: ' . $error_message);
+      }
+
+      // Calculate processing time
+      $processing_time = microtime(TRUE) - $start_time;
+
+      // Log successful processing with timing
+      $this->logger->info('Bento event processed successfully from queue: @type for @email (took @time seconds)', [
+        '@type' => $event_data['type'],
+        '@email' => $event_data['email'],
+        '@time' => round($processing_time, 3),
+      ]);
       
     }
     catch (\Exception $e) {
-      // Log error and re-throw for retry handling (to be implemented in BEN-163)
-      $this->logger->error('Failed to process Bento event from queue: @message', [
-        '@message' => $e->getMessage(),
-        '@event_type' => $event_data['type'] ?? 'unknown',
-      ]);
+      // Determine if this error should be retried or discarded
+      $should_retry = $this->shouldRetryError($e, $event_data);
       
-      throw $e;
+      if ($should_retry) {
+        // Log error and re-throw for retry handling (BEN-163 will implement retry logic)
+        $this->logger->error('Failed to process Bento event from queue (will retry): @message', [
+          '@message' => $e->getMessage(),
+          '@event_type' => $event_data['type'] ?? 'unknown',
+          '@email' => $event_data['email'] ?? 'unknown',
+        ]);
+        
+        throw $e;
+      }
+      else {
+        // Log error but don't re-throw (discard the item)
+        $this->logger->error('Failed to process Bento event from queue (discarding): @message', [
+          '@message' => $e->getMessage(),
+          '@event_type' => $event_data['type'] ?? 'unknown',
+          '@email' => $event_data['email'] ?? 'unknown',
+        ]);
+        
+        // Don't re-throw - this will mark the item as processed and remove it from queue
+        return;
+      }
     }
   }
 
@@ -160,6 +195,58 @@ class BentoEventProcessor extends QueueWorkerBase implements ContainerFactoryPlu
       return FALSE;
     }
 
+    return TRUE;
+  }
+
+  /**
+   * Determines if an error should trigger a retry or if the item should be discarded.
+   *
+   * Some errors indicate permanent failures that won't be resolved by retrying,
+   * such as malformed data or authentication issues. Others indicate temporary
+   * issues that may resolve with retry, such as network timeouts.
+   *
+   * @param \Exception $exception
+   *   The exception that occurred during processing.
+   * @param array $event_data
+   *   The event data that was being processed.
+   *
+   * @return bool
+   *   TRUE if the error should trigger a retry, FALSE if the item should be discarded.
+   */
+  private function shouldRetryError(\Exception $exception, array $event_data): bool {
+    $error_message = strtolower($exception->getMessage());
+    
+    // Don't retry for malformed data or validation errors
+    if (strpos($error_message, 'invalid') !== FALSE ||
+        strpos($error_message, 'malformed') !== FALSE ||
+        strpos($error_message, 'validation') !== FALSE ||
+        strpos($error_message, 'bad request') !== FALSE) {
+      return FALSE;
+    }
+    
+    // Don't retry for authentication/authorization errors
+    if (strpos($error_message, 'unauthorized') !== FALSE ||
+        strpos($error_message, 'forbidden') !== FALSE ||
+        strpos($error_message, 'authentication') !== FALSE ||
+        strpos($error_message, 'api key') !== FALSE) {
+      return FALSE;
+    }
+    
+    // Don't retry for client errors (4xx) except rate limiting
+    if (strpos($error_message, '4') === 0 && strpos($error_message, '429') === FALSE) {
+      return FALSE;
+    }
+    
+    // Retry for network issues, timeouts, and server errors
+    if (strpos($error_message, 'timeout') !== FALSE ||
+        strpos($error_message, 'connection') !== FALSE ||
+        strpos($error_message, 'network') !== FALSE ||
+        strpos($error_message, '5') === 0 ||  // 5xx server errors
+        strpos($error_message, '429') !== FALSE) {  // Rate limiting
+      return TRUE;
+    }
+    
+    // Default to retry for unknown errors to be safe
     return TRUE;
   }
 
