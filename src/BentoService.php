@@ -183,6 +183,57 @@ class BentoService {
   }
 
   /**
+   * Fetches the list of verified authors from Bento API.
+   *
+   * @return array
+   *   Array of author email addresses, or empty array on failure.
+   */
+  public function fetchAuthors(): array {
+    if (!$this->isConfigured()) {
+      $this->logger->error('Bento SDK is not properly configured. Please configure API credentials.');
+      return [];
+    }
+
+    // Check cache first
+    $cache_key = 'bento_authors_list';
+    $cached = $this->cache->get($cache_key);
+    if ($cached && $cached->data) {
+      $this->logger->info('Retrieved authors list from cache');
+      return $cached->data;
+    }
+
+    // Ensure credentials are loaded
+    $this->loadCredentials();
+
+    try {
+      $authors = $this->client->fetchAuthors();
+      
+      // Cache the result for 1 hour
+      $this->cache->set($cache_key, $authors, time() + 3600);
+      
+      $this->logger->info('Successfully fetched @count authors from Bento API', [
+        '@count' => count($authors),
+      ]);
+      
+      return $authors;
+    }
+    catch (\Exception $e) {
+      $this->logger->error('Failed to fetch authors from Bento API: @message', [
+        '@message' => $this->sanitizeErrorMessage($e->getMessage()),
+      ]);
+      return [];
+    }
+  }
+
+  /**
+   * Clears the cached authors list.
+   */
+  public function clearAuthorsCache(): void {
+    $this->cache->delete('bento_authors_list');
+    $this->logger->info('Authors cache cleared');
+  }
+
+  /**
    * Loads credentials from configuration into the HTTP client.
    */
   private function loadCredentials(): void {
@@ -480,6 +531,15 @@ class BentoService {
       return FALSE;
     }
 
+    // Log which "from" address will be used if not explicitly provided.
+    $from_email = $this->getDefaultFromEmail();
+    if (empty($email_data['from'])) {
+      $email_data['from'] = $from_email;
+      $this->logger->info('Using default from address: @email', [
+        '@email' => $this->sanitizeEmailForLogging($from_email),
+      ]);
+    }
+
     // Ensure credentials are loaded.
     $this->loadCredentials();
 
@@ -552,7 +612,7 @@ class BentoService {
    *   - suggestions: (array) Suggested corrections if applicable
    *   - cached: (bool) Whether result was from cache
    */
-  public function validateEmail(string $email, string $name = NULL, string $ip = NULL): array {
+  public function validateEmail(string $email, ?string $name = NULL, ?string $ip = NULL): array {
     // Basic email format validation first.
     if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
       return [
@@ -863,6 +923,23 @@ class BentoService {
   }
 
   /**
+   * Gets the default "from" email address based on configuration.
+   *
+   * @return string
+   *   The default from email address.
+   */
+  public function getDefaultFromEmail(): string {
+    $config = $this->configFactory->get('bento_sdk.settings');
+    
+    // Use the selected author email or fallback
+    if (!empty($config->get('default_author_email'))) {
+      return $config->get('default_author_email');
+    }
+    
+    return 'noreply@example.com';
+  }
+
+  /**
    * Formats transactional email data according to Bento API specification.
    *
    * @param array $email_data
@@ -873,13 +950,33 @@ class BentoService {
    */
   private function formatTransactionalEmailData(array $email_data): array {
     $config = $this->configFactory->get('bento_sdk.settings');
-    $default_from = $config->get('default_sender_email') ?: 'noreply@example.com';
+    
+    // Priority order for "from" address:
+    // 1. Explicitly provided 'from' in email_data
+    // 2. Selected author email from configuration
+    // 3. Default sender email from configuration
+    // 4. Fallback to noreply@example.com
+    
+    $default_from = 'noreply@example.com';
+    
+    if (!empty($email_data['from'])) {
+      $from_email = $email_data['from'];
+    }
+    elseif (!empty($config->get('default_author_email'))) {
+      $from_email = $config->get('default_author_email');
+    }
+    elseif (!empty($config->get('default_sender_email'))) {
+      $from_email = $config->get('default_sender_email');
+    }
+    else {
+      $from_email = $default_from;
+    }
 
     $formatted = [
       'emails' => [
         [
           'to' => $email_data['to'],
-          'from' => $email_data['from'] ?? $default_from,
+          'from' => $from_email,
           'subject' => $email_data['subject'],
           'transactional' => TRUE,
         ],
@@ -946,7 +1043,7 @@ class BentoService {
    * @return string
    *   The cache key.
    */
-  private function getEmailValidationCacheKey(string $email, string $name = NULL, string $ip = NULL): string {
+  private function getEmailValidationCacheKey(string $email, ?string $name = NULL, ?string $ip = NULL): string {
     $key_parts = ['bento_email_validation', strtolower($email)];
     
     if ($name !== NULL) {

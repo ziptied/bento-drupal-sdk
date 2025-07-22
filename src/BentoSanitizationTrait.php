@@ -71,4 +71,38 @@ trait BentoSanitizationTrait {
     // If not a valid email, just show [EMAIL].
     return '[EMAIL]';
   }
+
+  /**
+   * Sanitizes API endpoints for logging to prevent information disclosure.
+   *
+   * @param string $endpoint
+   *   The API endpoint to sanitize.
+   *
+   * @return string
+   *   The sanitized endpoint.
+   */
+  private function sanitizeEndpointForLogging(string $endpoint): string {
+    // Endpoints are generally safe to log, but we'll remove any potential
+    // sensitive information like IDs or tokens.
+    $patterns = [
+      // Remove anything that looks like a UUID in the endpoint.
+      '/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i' => '[UUID]',
+      // Remove anything that looks like an API key in the endpoint.
+      '/\b(?:sk|pk|api[_-]?key|token|secret)[_-]?[a-zA-Z0-9]{16,}\b/i' => '[API_KEY]',
+      // Remove base64-like strings that might be keys.
+      '/\b[a-zA-Z0-9+\/]{40,}={0,2}\b/' => '[API_KEY]',
+    ];
+
+    $sanitized = $endpoint;
+    foreach ($patterns as $pattern => $replacement) {
+      $sanitized = preg_replace($pattern, $replacement, $sanitized);
+    }
+
+    // Limit endpoint length to prevent log flooding.
+    if (strlen($sanitized) > 200) {
+      $sanitized = substr($sanitized, 0, 197) . '...';
+    }
+
+    return $sanitized;
+  }
 } 

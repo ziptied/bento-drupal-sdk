@@ -9,6 +9,9 @@ use Drupal\Core\Session\AccountInterface;
 use Drupal\Core\Access\AccessResult;
 use Psr\Log\LoggerInterface;
 use Drupal\bento_sdk\BentoSanitizationTrait;
+use Drupal\Core\Ajax\AjaxResponse;
+use Drupal\Core\Ajax\ReplaceCommand;
+use Drupal\Core\Ajax\MessageCommand;
 
 /**
  * Configuration form for Bento SDK settings.
@@ -127,6 +130,13 @@ class BentoSettingsForm extends ConfigFormBase {
       '#required' => TRUE,
       '#maxlength' => 36,
       '#disabled' => !$can_edit_credentials,
+      '#ajax' => [
+        'callback' => '::credentialsChangedCallback',
+        'wrapper' => 'authors-dropdown-wrapper',
+        'method' => 'replace',
+        'effect' => 'fade',
+        'event' => 'change',
+      ],
     ];
 
     $form['api_credentials']['publishable_key'] = [
@@ -137,6 +147,13 @@ class BentoSettingsForm extends ConfigFormBase {
       '#required' => TRUE,
       '#maxlength' => 255,
       '#disabled' => !$can_edit_credentials,
+      '#ajax' => [
+        'callback' => '::credentialsChangedCallback',
+        'wrapper' => 'authors-dropdown-wrapper',
+        'method' => 'replace',
+        'effect' => 'fade',
+        'event' => 'change',
+      ],
     ];
 
     $form['api_credentials']['secret_key'] = [
@@ -145,6 +162,13 @@ class BentoSettingsForm extends ConfigFormBase {
       '#description' => $this->t('Your Bento secret key. Leave blank to keep existing value. <strong>Security Note:</strong> For production environments, consider setting the BENTO_SECRET_KEY environment variable instead.'),
       '#maxlength' => 255,
       '#disabled' => !$can_edit_credentials,
+      '#ajax' => [
+        'callback' => '::credentialsChangedCallback',
+        'wrapper' => 'authors-dropdown-wrapper',
+        'method' => 'replace',
+        'effect' => 'fade',
+        'event' => 'change',
+      ],
     ];
 
     // Show current secret key status if one exists.
@@ -182,15 +206,48 @@ class BentoSettingsForm extends ConfigFormBase {
       '#disabled' => !$can_edit_mail,
     ];
 
-    $form['mail_settings']['default_sender_email'] = [
-      '#type' => 'email',
-      '#title' => $this->t('Default sender email'),
-      '#description' => $this->t('Default email address to use as sender when not specified. Used for transactional emails.'),
-      '#default_value' => $config->get('default_sender_email'),
-      '#disabled' => !$can_edit_mail,
+
+
+    // Add author dropdown field
+    $form['mail_settings']['default_author_email'] = [
+      '#type' => 'select',
+      '#title' => $this->t('Default author email'),
+      '#description' => $this->t('Select a verified sender email address from your Bento account. This will be used as the default "from" address for emails sent through Bento.'),
+      '#options' => $this->getAuthorOptions(),
+      '#default_value' => $config->get('default_author_email'),
+      '#disabled' => !$can_edit_mail || !$this->isConfigured(),
+      '#empty_option' => $this->t('- Select an author -'),
+      '#empty_value' => '',
       '#states' => [
         'visible' => [
           ':input[name="enable_mail_routing"]' => ['checked' => TRUE],
+        ],
+      ],
+      '#prefix' => '<div id="authors-dropdown-wrapper">',
+      '#suffix' => '</div>',
+    ];
+
+    // Add refresh button
+    $form['mail_settings']['refresh_authors'] = [
+      '#type' => 'button',
+      '#value' => $this->t('Refresh Authors'),
+      '#disabled' => !$can_edit_mail || !$this->isConfigured(),
+      '#states' => [
+        'visible' => [
+          ':input[name="enable_mail_routing"]' => ['checked' => TRUE],
+        ],
+      ],
+      '#attributes' => [
+        'class' => ['button--small'],
+      ],
+      '#ajax' => [
+        'callback' => '::refreshAuthorsCallback',
+        'wrapper' => 'authors-dropdown-wrapper',
+        'method' => 'replace',
+        'effect' => 'fade',
+        'progress' => [
+          'type' => 'throbber',
+          'message' => $this->t('Refreshing authors...'),
         ],
       ],
     ];
@@ -410,12 +467,56 @@ class BentoSettingsForm extends ConfigFormBase {
     // Validate security settings.
     $this->validateSecuritySettings($form_state);
 
-    // Validate default sender email if mail routing is enabled.
+    // Validate default author email if mail routing is enabled.
     $enable_mail_routing = $form_state->getValue('enable_mail_routing');
-    $default_sender_email = $form_state->getValue('default_sender_email');
+    $default_author_email = $form_state->getValue('default_author_email');
     
-    if ($enable_mail_routing && empty($default_sender_email)) {
-      $form_state->setErrorByName('default_sender_email', $this->t('Default sender email is required when mail routing is enabled.'));
+    if ($enable_mail_routing && empty($default_author_email)) {
+      $form_state->setErrorByName('default_author_email', $this->t('Default author email is required when mail routing is enabled.'));
+    }
+
+    // Clear author selection if credentials changed.
+    $config = $this->config('bento_sdk.settings');
+    $old_site_uuid = $config->get('site_uuid');
+    $old_publishable_key = $config->get('publishable_key');
+
+    $new_site_uuid = $form_state->getValue('site_uuid');
+    $new_publishable_key = $form_state->getValue('publishable_key');
+    $secret_key = $form_state->getValue('secret_key');
+
+    $credentials_changed = (
+      $old_site_uuid !== $new_site_uuid ||
+      $old_publishable_key !== $new_publishable_key ||
+      !empty($secret_key)
+    );
+
+    if ($credentials_changed) {
+      // Clear the selected author when credentials change.
+      $form_state->setValue('default_author_email', '');
+      
+      // Clear the authors cache.
+      try {
+        $bento_service = \Drupal::service('bento.sdk');
+        $bento_service->clearAuthorsCache();
+      } catch (\Exception $e) {
+        $this->logger->warning('Failed to clear authors cache during validation: @message', [
+          '@message' => $e->getMessage(),
+        ]);
+      }
+    }
+
+    // Validate default author email if selected.
+    $default_author_email = $form_state->getValue('default_author_email');
+    if (!empty($default_author_email)) {
+      if (!filter_var($default_author_email, FILTER_VALIDATE_EMAIL)) {
+        $form_state->setErrorByName('default_author_email', $this->t('Selected author email is not valid.'));
+      }
+      
+      // Validate that the selected author exists in the current list.
+      $available_authors = $this->getAuthorOptions();
+      if (!isset($available_authors[$default_author_email])) {
+        $form_state->setErrorByName('default_author_email', $this->t('Selected author is not available. Please refresh the authors list.'));
+      }
     }
   }
 
@@ -462,11 +563,14 @@ class BentoSettingsForm extends ConfigFormBase {
         $config->set('enable_mail_routing', $new_mail_routing);
       }
 
-      $old_sender_email = $config->get('default_sender_email');
-      $new_sender_email = $form_state->getValue('default_sender_email');
-      if ($old_sender_email !== $new_sender_email) {
-        $changes[] = 'default_sender_email';
-        $config->set('default_sender_email', $new_sender_email);
+
+
+      // Track author setting changes.
+      $old_author_email = $config->get('default_author_email');
+      $new_author_email = $form_state->getValue('default_author_email');
+      if ($old_author_email !== $new_author_email) {
+        $changes[] = 'default_author_email';
+        $config->set('default_author_email', $new_author_email);
       }
     }
 
@@ -521,6 +625,243 @@ class BentoSettingsForm extends ConfigFormBase {
     }
 
     parent::submitForm($form, $form_state);
+  }
+
+  /**
+   * Gets the author options for the dropdown.
+   *
+   * @return array
+   *   Array of email addresses keyed by email.
+   */
+  private function getAuthorOptions(): array {
+    if (!$this->isConfigured()) {
+      return [];
+    }
+
+    try {
+      $bento_service = \Drupal::service('bento.sdk');
+      $authors = $bento_service->fetchAuthors();
+      
+      $options = [];
+      foreach ($authors as $email) {
+        $options[$email] = $email;
+      }
+      
+      return $options;
+    }
+    catch (\Exception $e) {
+      $this->logger->error('Failed to fetch authors for dropdown: @message', [
+        '@message' => $e->getMessage(),
+      ]);
+      return [];
+    }
+  }
+
+  /**
+   * Checks if Bento is properly configured.
+   *
+   * @return bool
+   *   TRUE if configured, FALSE otherwise.
+   */
+  private function isConfigured(): bool {
+    try {
+      $bento_service = \Drupal::service('bento.sdk');
+      return $bento_service->isConfigured();
+    }
+    catch (\Exception $e) {
+      return FALSE;
+    }
+  }
+
+  /**
+   * AJAX callback to refresh the authors dropdown.
+   *
+   * @param array $form
+   *   The form array.
+   * @param \Drupal\Core\Form\FormStateInterface $form_state
+   *   The form state.
+   *
+   * @return \Drupal\Core\Ajax\AjaxResponse
+   *   The AJAX response.
+   */
+  public function refreshAuthorsCallback(array &$form, FormStateInterface $form_state) {
+    $response = new AjaxResponse();
+
+    try {
+      // Clear the authors cache
+      $bento_service = \Drupal::service('bento.sdk');
+      $bento_service->clearAuthorsCache();
+
+      // Fetch fresh authors
+      $authors = $bento_service->fetchAuthors();
+
+      // Update the dropdown options
+      $options = [];
+      foreach ($authors as $email) {
+        $options[$email] = $email;
+      }
+
+      // Create the updated dropdown element
+      $updated_element = [
+        '#type' => 'select',
+        '#title' => $this->t('Default author email'),
+        '#description' => $this->t('Select a verified sender email address from your Bento account. This will be used as the default "from" address for emails sent through Bento.'),
+        '#options' => $options,
+        '#default_value' => $form_state->getValue('default_author_email'),
+        '#disabled' => !$this->hasMailEditAccess() || !$this->isConfigured(),
+        '#empty_option' => $this->t('- Select an author -'),
+        '#empty_value' => '',
+        '#states' => [
+          'visible' => [
+            ':input[name="enable_mail_routing"]' => ['checked' => TRUE],
+          ],
+        ],
+        '#prefix' => '<div id="authors-dropdown-wrapper">',
+        '#suffix' => '</div>',
+      ];
+
+      // Add success message
+      $message = $this->t('Authors list refreshed successfully. Found @count authors.', [
+        '@count' => count($authors),
+      ]);
+      $response->addCommand(new MessageCommand($message, 'status'));
+
+      // Replace the dropdown
+      $response->addCommand(new ReplaceCommand('#authors-dropdown-wrapper', \Drupal::service('renderer')->render($updated_element)));
+
+    } catch (\Exception $e) {
+      // Add error message
+      $error_message = $this->t('Failed to refresh authors: @message', [
+        '@message' => $e->getMessage(),
+      ]);
+      $response->addCommand(new MessageCommand($error_message, 'error'));
+
+      // Log the error
+      $this->logger->error('Failed to refresh authors via AJAX: @message', [
+        '@message' => $e->getMessage(),
+      ]);
+    }
+
+    return $response;
+  }
+
+  /**
+   * AJAX callback when credentials are changed.
+   *
+   * @param array $form
+   *   The form array.
+   * @param \Drupal\Core\Form\FormStateInterface $form_state
+   *   The form state.
+   *
+   * @return \Drupal\Core\Ajax\AjaxResponse
+   *   The AJAX response.
+   */
+  public function credentialsChangedCallback(array &$form, FormStateInterface $form_state) {
+    $response = new AjaxResponse();
+
+    // Clear the authors cache when credentials change
+    try {
+      $bento_service = \Drupal::service('bento.sdk');
+      $bento_service->clearAuthorsCache();
+    } catch (\Exception $e) {
+      // Log but don't fail the callback
+      $this->logger->warning('Failed to clear authors cache on credential change: @message', [
+        '@message' => $e->getMessage(),
+      ]);
+    }
+
+    // Check if we have valid credentials now
+    $site_uuid = $form_state->getValue('site_uuid');
+    $publishable_key = $form_state->getValue('publishable_key');
+    $secret_key = $form_state->getValue('secret_key');
+
+    $has_credentials = !empty($site_uuid) && !empty($publishable_key) && !empty($secret_key);
+
+    if ($has_credentials) {
+      // Try to fetch authors with new credentials
+      try {
+        $authors = $this->getAuthorOptions();
+        
+        // Create updated dropdown
+        $updated_element = [
+          '#type' => 'select',
+          '#title' => $this->t('Default author email'),
+          '#description' => $this->t('Select a verified sender email address from your Bento account. This will be used as the default "from" address for emails sent through Bento.'),
+          '#options' => $authors,
+          '#default_value' => '',
+          '#disabled' => !$this->hasMailEditAccess(),
+          '#empty_option' => $this->t('- Select an author -'),
+          '#empty_value' => '',
+          '#states' => [
+            'visible' => [
+              ':input[name="enable_mail_routing"]' => ['checked' => TRUE],
+            ],
+          ],
+          '#prefix' => '<div id="authors-dropdown-wrapper">',
+          '#suffix' => '</div>',
+        ];
+
+        // Add success message
+        $message = $this->t('Credentials updated. Found @count authors.', [
+          '@count' => count($authors),
+        ]);
+        $response->addCommand(new MessageCommand($message, 'status'));
+
+        // Replace the dropdown
+        $response->addCommand(new ReplaceCommand('#authors-dropdown-wrapper', \Drupal::service('renderer')->render($updated_element)));
+
+      } catch (\Exception $e) {
+        // Credentials might be invalid, show disabled dropdown
+        $disabled_element = [
+          '#type' => 'select',
+          '#title' => $this->t('Default author email'),
+          '#description' => $this->t('Configure valid API credentials first to load authors.'),
+          '#options' => [],
+          '#default_value' => '',
+          '#disabled' => TRUE,
+          '#empty_option' => $this->t('Configure API credentials first'),
+          '#empty_value' => '',
+          '#states' => [
+            'visible' => [
+              ':input[name="enable_mail_routing"]' => ['checked' => TRUE],
+            ],
+          ],
+          '#prefix' => '<div id="authors-dropdown-wrapper">',
+          '#suffix' => '</div>',
+        ];
+
+        // Add warning message
+        $message = $this->t('Please configure valid API credentials to load authors.');
+        $response->addCommand(new MessageCommand($message, 'warning'));
+
+        // Replace the dropdown
+        $response->addCommand(new ReplaceCommand('#authors-dropdown-wrapper', \Drupal::service('renderer')->render($disabled_element)));
+      }
+    } else {
+      // No credentials, show disabled dropdown
+      $disabled_element = [
+        '#type' => 'select',
+        '#title' => $this->t('Default author email'),
+        '#description' => $this->t('Configure API credentials first to load authors.'),
+        '#options' => [],
+        '#default_value' => '',
+        '#disabled' => TRUE,
+        '#empty_option' => $this->t('Configure API credentials first'),
+        '#empty_value' => '',
+        '#states' => [
+          'visible' => [
+            ':input[name="enable_mail_routing"]' => ['checked' => TRUE],
+          ],
+        ],
+        '#prefix' => '<div id="authors-dropdown-wrapper">',
+        '#suffix' => '</div>',
+      ];
+
+      // Replace the dropdown
+      $response->addCommand(new ReplaceCommand('#authors-dropdown-wrapper', \Drupal::service('renderer')->render($disabled_element)));
+    }
+
+    return $response;
   }
 
   /**

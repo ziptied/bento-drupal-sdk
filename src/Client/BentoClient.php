@@ -99,7 +99,7 @@ class BentoClient {
    *
    * @var string
    */
-  private string $drupalVersion;
+  private string $drupalVersion = '';
 
   /**
    * The module handler service.
@@ -124,13 +124,13 @@ class BentoClient {
    * @param \Drupal\Core\Extension\ModuleHandlerInterface $module_handler
    *   The module handler service.
    */
-  public function __construct(ClientInterface $http_client, LoggerInterface $logger, CacheBackendInterface $cache, ConfigFactoryInterface $config_factory, string $drupal_version, ModuleHandlerInterface $module_handler) {
+  public function __construct(ClientInterface $http_client, LoggerInterface $logger, CacheBackendInterface $cache, ConfigFactoryInterface $config_factory, string $drupal_version = '', ?ModuleHandlerInterface $module_handler = NULL) {
     $this->httpClient = $http_client;
     $this->logger = $logger;
     $this->cache = $cache;
     $this->configFactory = $config_factory;
-    $this->drupalVersion = $drupal_version;
-    $this->moduleHandler = $module_handler;
+    $this->drupalVersion = $drupal_version ?: \Drupal::VERSION;
+    $this->moduleHandler = $module_handler ?: \Drupal::service('module_handler');
   }
 
   /**
@@ -228,6 +228,32 @@ class BentoClient {
     ];
 
     return $this->makeRequest('POST', $endpoint, $options);
+  }
+
+  /**
+   * Fetches the list of verified authors from Bento API.
+   *
+   * @return array
+   *   Array of author email addresses.
+   *
+   * @throws \Exception
+   *   When the request fails or credentials are not set.
+   */
+  public function fetchAuthors(): array {
+    $response = $this->get('fetch/authors');
+    
+    // The API returns a data array with author objects containing attributes
+    // Extract email addresses from the response
+    $authors = [];
+    if (isset($response['data']) && is_array($response['data'])) {
+      foreach ($response['data'] as $author) {
+        if (isset($author['attributes']['email']) && filter_var($author['attributes']['email'], FILTER_VALIDATE_EMAIL)) {
+          $authors[] = $author['attributes']['email'];
+        }
+      }
+    }
+    
+    return $authors;
   }
 
   /**
@@ -435,6 +461,7 @@ class BentoClient {
     $allowed_patterns = [
       '/^batch\/(events|emails|subscribers)$/',
       '/^fetch\/commands$/',
+      '/^fetch\/authors$/',
       '/^experimental\/validation$/',
       '/^subscribers\/[a-zA-Z0-9%._-]+$/', // Allow URL-encoded characters
       '/^events\/[a-zA-Z0-9_-]+$/',
