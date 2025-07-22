@@ -425,6 +425,21 @@ class BentoSettingsForm extends ConfigFormBase {
       ],
     ];
 
+    $form['rate_limiting']['max_test_emails_per_hour'] = [
+      '#type' => 'number',
+      '#title' => $this->t('Maximum test emails per hour'),
+      '#description' => $this->t('Maximum number of test emails allowed per user per hour. Default: 5.'),
+      '#default_value' => $config->get('max_test_emails_per_hour') ?: 5,
+      '#min' => 1,
+      '#max' => 20,
+      '#disabled' => !$can_edit_performance,
+      '#states' => [
+        'visible' => [
+          ':input[name="enable_rate_limiting"]' => ['checked' => TRUE],
+        ],
+      ],
+    ];
+
     $form['rate_limiting']['enable_circuit_breaker'] = [
       '#type' => 'checkbox',
       '#title' => $this->t('Enable circuit breaker'),
@@ -675,6 +690,7 @@ class BentoSettingsForm extends ConfigFormBase {
         'enable_rate_limiting',
         'max_requests_per_minute',
         'max_requests_per_hour',
+        'max_test_emails_per_hour',
         'enable_circuit_breaker',
         'circuit_breaker_failure_threshold',
         'circuit_breaker_timeout',
@@ -780,7 +796,73 @@ class BentoSettingsForm extends ConfigFormBase {
       return FALSE;
     }
 
+    // Check rate limiting
+    $rate_limit = $this->checkTestEmailRateLimit();
+    if (!$rate_limit['allowed']) {
+      return FALSE;
+    }
+
     return TRUE;
+  }
+
+  /**
+   * Checks if test email rate limit is exceeded.
+   *
+   * @return array
+   *   Array with 'allowed' boolean and 'next_allowed' timestamp.
+   */
+  private function checkTestEmailRateLimit(): array {
+    $user_id = $this->currentUser->id();
+    $cache_key = 'bento_test_email_rate_limit:' . $user_id;
+    
+    // Get rate limiting configuration
+    $config = $this->config('bento_sdk.settings');
+    $max_test_emails_per_hour = $config->get('max_test_emails_per_hour') ?: 5; // Default: 5 per hour
+    
+    // Get current usage
+    $cached = \Drupal::cache()->get($cache_key);
+    $current_usage = $cached ? $cached->data : ['count' => 0, 'reset_time' => time() + 3600];
+    
+    // Check if we need to reset the counter
+    if (time() > $current_usage['reset_time']) {
+      $current_usage = ['count' => 0, 'reset_time' => time() + 3600];
+    }
+    
+    // Check if rate limit is exceeded
+    if ($current_usage['count'] >= $max_test_emails_per_hour) {
+      return [
+        'allowed' => FALSE,
+        'next_allowed' => $current_usage['reset_time'],
+      ];
+    }
+    
+    return [
+      'allowed' => TRUE,
+      'next_allowed' => $current_usage['reset_time'],
+    ];
+  }
+
+  /**
+   * Increments the test email rate limit counter.
+   */
+  private function incrementTestEmailRateLimit(): void {
+    $user_id = $this->currentUser->id();
+    $cache_key = 'bento_test_email_rate_limit:' . $user_id;
+    
+    // Get current usage
+    $cached = \Drupal::cache()->get($cache_key);
+    $current_usage = $cached ? $cached->data : ['count' => 0, 'reset_time' => time() + 3600];
+    
+    // Check if we need to reset the counter
+    if (time() > $current_usage['reset_time']) {
+      $current_usage = ['count' => 0, 'reset_time' => time() + 3600];
+    }
+    
+    // Increment counter
+    $current_usage['count']++;
+    
+    // Store updated usage
+    \Drupal::cache()->set($cache_key, $current_usage, $current_usage['reset_time']);
   }
 
   /**
@@ -989,6 +1071,25 @@ class BentoSettingsForm extends ConfigFormBase {
     $response = new AjaxResponse();
 
     try {
+      // Check rate limiting first
+      $rate_limit = $this->checkTestEmailRateLimit();
+      if (!$rate_limit['allowed']) {
+        $next_allowed = date('H:i:s', $rate_limit['next_allowed']);
+        $error_message = $this->t('Test email rate limit exceeded. You can send another test email after @time.', [
+          '@time' => $next_allowed,
+        ]);
+        $response->addCommand(new MessageCommand($error_message, 'warning'));
+        
+        // Create empty messages wrapper
+        $messages_element = [
+          '#type' => 'markup',
+          '#markup' => '<div id="test-email-messages"></div>',
+        ];
+        $response->addCommand(new ReplaceCommand('#test-email-messages', \Drupal::service('renderer')->render($messages_element)));
+        
+        return $response;
+      }
+
       // Validate prerequisites
       if (!$this->canSendTestEmail()) {
         $error_message = $this->t('Cannot send test email. Please ensure API credentials are configured and an author is selected.');
@@ -1021,6 +1122,9 @@ class BentoSettingsForm extends ConfigFormBase {
       $success = $bento_service->sendTransactionalEmail($test_email_data);
 
       if ($success) {
+        // Increment rate limit counter after successful send
+        $this->incrementTestEmailRateLimit();
+
         // Success message
         $success_message = $this->t('Test email sent successfully to @email', [
           '@email' => $this->sanitizeEmailForLogging($selected_author),
