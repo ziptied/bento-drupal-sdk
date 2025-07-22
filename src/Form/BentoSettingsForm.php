@@ -226,11 +226,17 @@ class BentoSettingsForm extends ConfigFormBase {
       '#prefix' => '<div id="authors-dropdown-wrapper">',
       '#suffix' => '</div>',
       '#ajax' => [
-        'callback' => '::updateTestEmailButtonStateCallback',
-        'wrapper' => 'test-email-button-state',
+        'callback' => '::sendTestEmailCallback',
+        'wrapper' => 'test-email-messages',
         'method' => 'replace',
         'effect' => 'fade',
-        'event' => 'change',
+        'event' => 'click',
+        'prevent' => 'click',
+        'progress' => [
+          'type' => 'throbber',
+          'message' => $this->t('Sending test email...'),
+        ],
+      ],
       ],
     ];
 
@@ -352,6 +358,8 @@ class BentoSettingsForm extends ConfigFormBase {
           'message' => $this->t('Sending test email...'),
         ],
       ],
+      '#executes_submit_callback' => FALSE,
+      '#limit_validation_errors' => [],
     ];
 
     // Add messages wrapper
@@ -1108,6 +1116,14 @@ class BentoSettingsForm extends ConfigFormBase {
   public function sendTestEmailCallback(array &$form, FormStateInterface $form_state) {
     $response = new AjaxResponse();
 
+    // Add debug logging to verify callback is being called
+    \Drupal::logger('bento_sdk')->info('Test email callback triggered by user @username', [
+      '@username' => $this->currentUser->getAccountName(),
+    ]);
+
+    // Clear any form errors that might interfere with AJAX
+    $form_state->clearErrors();
+
     try {
       // Check rate limiting first
       $rate_limit = $this->checkTestEmailRateLimit();
@@ -1287,6 +1303,8 @@ class BentoSettingsForm extends ConfigFormBase {
           'message' => $this->t('Sending test email...'),
         ],
       ],
+      '#executes_submit_callback' => FALSE,
+      '#limit_validation_errors' => [],
     ];
 
     // Create state message
