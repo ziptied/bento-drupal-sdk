@@ -987,17 +987,92 @@ class BentoSettingsForm extends ConfigFormBase {
    */
   public function sendTestEmailCallback(array &$form, FormStateInterface $form_state) {
     $response = new AjaxResponse();
-    
-    // Placeholder implementation - will be completed in BEN-182
-    $response->addCommand(new MessageCommand($this->t('Test email functionality will be implemented in BEN-182.'), 'warning'));
-    
-    // Create empty messages wrapper
-    $messages_element = [
-      '#type' => 'markup',
-      '#markup' => '<div id="test-email-messages"></div>',
-    ];
-    $response->addCommand(new ReplaceCommand('#test-email-messages', \Drupal::service('renderer')->render($messages_element)));
-    
+
+    try {
+      // Validate prerequisites
+      if (!$this->canSendTestEmail()) {
+        $error_message = $this->t('Cannot send test email. Please ensure API credentials are configured and an author is selected.');
+        $response->addCommand(new MessageCommand($error_message, 'error'));
+        
+        // Create empty messages wrapper
+        $messages_element = [
+          '#type' => 'markup',
+          '#markup' => '<div id="test-email-messages"></div>',
+        ];
+        $response->addCommand(new ReplaceCommand('#test-email-messages', \Drupal::service('renderer')->render($messages_element)));
+        
+        return $response;
+      }
+
+      // Get the selected author
+      $config = $this->config('bento_sdk.settings');
+      $selected_author = $config->get('default_author_email');
+
+      // Prepare test email data
+      $test_email_data = [
+        'to' => $selected_author,
+        'subject' => 'Test Email',
+        'html_body' => '<p>This is a test email from Bento SDK.</p><p>If you received this email, your Bento email configuration is working correctly.</p>',
+        'text_body' => "This is a test email from Bento SDK.\n\nIf you received this email, your Bento email configuration is working correctly.",
+      ];
+
+      // Send test email
+      $bento_service = \Drupal::service('bento.sdk');
+      $success = $bento_service->sendTransactionalEmail($test_email_data);
+
+      if ($success) {
+        // Success message
+        $success_message = $this->t('Test email sent successfully to @email', [
+          '@email' => $this->sanitizeEmailForLogging($selected_author),
+        ]);
+        $response->addCommand(new MessageCommand($success_message, 'status'));
+
+        // Log successful test email
+        $this->logger->info('Test email sent successfully to @email by user @username', [
+          '@email' => $this->sanitizeEmailForLogging($selected_author),
+          '@username' => $this->currentUser->getAccountName(),
+        ]);
+
+      } else {
+        // Failure message
+        $error_message = $this->t('Test email failed. Please check your API credentials and ensure a valid author is selected.');
+        $response->addCommand(new MessageCommand($error_message, 'error'));
+
+        // Log failed test email
+        $this->logger->error('Test email failed for user @username to @email', [
+          '@username' => $this->currentUser->getAccountName(),
+          '@email' => $this->sanitizeEmailForLogging($selected_author),
+        ]);
+      }
+
+      // Create messages wrapper with the result
+      $messages_element = [
+        '#type' => 'markup',
+        '#markup' => '<div id="test-email-messages"></div>',
+      ];
+      $response->addCommand(new ReplaceCommand('#test-email-messages', \Drupal::service('renderer')->render($messages_element)));
+
+    } catch (\Exception $e) {
+      // Exception handling
+      $error_message = $this->t('Test email failed: @message', [
+        '@message' => $e->getMessage(),
+      ]);
+      $response->addCommand(new MessageCommand($error_message, 'error'));
+
+      // Log the exception
+      $this->logger->error('Test email exception for user @username: @message', [
+        '@username' => $this->currentUser->getAccountName(),
+        '@message' => $e->getMessage(),
+      ]);
+
+      // Create empty messages wrapper
+      $messages_element = [
+        '#type' => 'markup',
+        '#markup' => '<div id="test-email-messages"></div>',
+      ];
+      $response->addCommand(new ReplaceCommand('#test-email-messages', \Drupal::service('renderer')->render($messages_element)));
+    }
+
     return $response;
   }
 
