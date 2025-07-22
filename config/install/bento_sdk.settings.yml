@@ -20,3 +20,9 @@ ssl_verification: true
 request_timeout: 30
 connection_timeout: 10
 enable_request_id_tracking: true
+# Queue retry configuration
+retry:
+  max_attempts: 3           # Maximum number of retry attempts
+  base_delay: 60           # Base delay in seconds (1 minute)
+  max_delay: 300           # Maximum delay in seconds (5 minutes)
+  dead_letter_retention: 2592000  # Dead letter queue retention in seconds (30 days)

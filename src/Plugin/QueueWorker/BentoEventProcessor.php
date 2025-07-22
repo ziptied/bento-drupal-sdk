@@ -5,6 +5,7 @@ namespace Drupal\bento_sdk\Plugin\QueueWorker;
 use Drupal\Core\Plugin\ContainerFactoryPluginInterface;
 use Drupal\Core\Queue\QueueWorkerBase;
 use Drupal\bento_sdk\BentoService;
+use Drupal\bento_sdk\Queue\BentoEventRetryManager;
 use Psr\Log\LoggerInterface;
 use Symfony\Component\DependencyInjection\ContainerInterface;
 
@@ -37,6 +38,13 @@ class BentoEventProcessor extends QueueWorkerBase implements ContainerFactoryPlu
   private LoggerInterface $logger;
 
   /**
+   * The retry manager service.
+   *
+   * @var \Drupal\bento_sdk\Queue\BentoEventRetryManager
+   */
+  private BentoEventRetryManager $retryManager;
+
+  /**
    * Constructs a new BentoEventProcessor.
    *
    * @param array $configuration
@@ -49,11 +57,14 @@ class BentoEventProcessor extends QueueWorkerBase implements ContainerFactoryPlu
    *   The Bento service.
    * @param \Psr\Log\LoggerInterface $logger
    *   The logger service.
+   * @param \Drupal\bento_sdk\Queue\BentoEventRetryManager $retry_manager
+   *   The retry manager service.
    */
-  public function __construct(array $configuration, string $plugin_id, $plugin_definition, BentoService $bento_service, LoggerInterface $logger) {
+  public function __construct(array $configuration, string $plugin_id, $plugin_definition, BentoService $bento_service, LoggerInterface $logger, BentoEventRetryManager $retry_manager) {
     parent::__construct($configuration, $plugin_id, $plugin_definition);
     $this->bentoService = $bento_service;
     $this->logger = $logger;
+    $this->retryManager = $retry_manager;
   }
 
   /**
@@ -65,7 +76,8 @@ class BentoEventProcessor extends QueueWorkerBase implements ContainerFactoryPlu
       $plugin_id,
       $plugin_definition,
       $container->get('bento.sdk'),
-      $container->get('logger.channel.bento_sdk')
+      $container->get('logger.channel.bento_sdk'),
+      $container->get('bento_sdk.retry_manager')
     );
   }
 
@@ -126,14 +138,19 @@ class BentoEventProcessor extends QueueWorkerBase implements ContainerFactoryPlu
       $should_retry = $this->shouldRetryError($e, $event_data);
       
       if ($should_retry) {
-        // Log error and re-throw for retry handling (BEN-163 will implement retry logic)
-        $this->logger->error('Failed to process Bento event from queue (will retry): @message', [
-          '@message' => $e->getMessage(),
-          '@event_type' => $event_data['type'] ?? 'unknown',
-          '@email' => $event_data['email'] ?? 'unknown',
-        ]);
+        // Use retry manager to handle retry logic with exponential backoff
+        $retry_handled = $this->retryManager->handleRetry($data, $e);
         
-        throw $e;
+        if ($retry_handled) {
+          // Item was re-queued for retry - don't re-throw to avoid immediate retry
+          $this->logger->info('Bento event scheduled for retry with exponential backoff');
+          return;
+        }
+        else {
+          // Item was moved to dead letter queue - log and return
+          $this->logger->error('Bento event moved to dead letter queue after max retry attempts');
+          return;
+        }
       }
       else {
         // Log error but don't re-throw (discard the item)

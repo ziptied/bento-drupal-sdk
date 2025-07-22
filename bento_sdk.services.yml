@@ -12,6 +12,10 @@ services:
     class: Drupal\bento_sdk\Queue\BentoEventQueueManager
     arguments: ['@queue', '@config.factory', '@logger.channel.bento_sdk']
 
+  bento_sdk.retry_manager:
+    class: Drupal\bento_sdk\Queue\BentoEventRetryManager
+    arguments: ['@queue', '@config.factory', '@state', '@logger.channel.bento_sdk']
+
   logger.channel.bento_sdk:
     parent: logger.channel_base
     arguments: ['bento_sdk']
