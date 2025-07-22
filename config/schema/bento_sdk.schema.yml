@@ -66,3 +66,19 @@ bento_sdk.settings:
     enable_request_id_tracking:
       type: boolean
       label: 'Enable request ID tracking for audit trails'
+    retry:
+      type: mapping
+      label: 'Queue retry configuration'
+      mapping:
+        max_attempts:
+          type: integer
+          label: 'Maximum number of retry attempts'
+        base_delay:
+          type: integer
+          label: 'Base delay in seconds for exponential backoff'
+        max_delay:
+          type: integer
+          label: 'Maximum delay in seconds'
+        dead_letter_retention:
+          type: integer
+          label: 'Dead letter queue retention period in seconds'

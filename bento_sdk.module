@@ -27,3 +27,21 @@ function bento_sdk_help($route_name, RouteMatchInterface $route_match) {
     default:
   }
 }
+
+/**
+ * Implements hook_cron().
+ *
+ * Processes scheduled retry items for Bento events.
+ */
+function bento_sdk_cron() {
+  // Process scheduled retries for Bento events
+  try {
+    $retry_manager = \Drupal::service('bento_sdk.retry_manager');
+    $retry_manager->processScheduledRetries();
+  }
+  catch (\Exception $e) {
+    \Drupal::logger('bento_sdk')->error('Failed to process scheduled retries during cron: @message', [
+      '@message' => $e->getMessage(),
+    ]);
+  }
+}

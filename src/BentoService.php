@@ -3,6 +3,7 @@
 namespace Drupal\bento_sdk;
 
 use Drupal\bento_sdk\Client\BentoClient;
+use Drupal\bento_sdk\Queue\BentoEventQueueManager;
 use Drupal\Core\Cache\CacheBackendInterface;
 use Drupal\Core\Config\ConfigFactoryInterface;
 use Drupal\Core\State\StateInterface;
@@ -54,6 +55,13 @@ class BentoService {
   private StateInterface $state;
 
   /**
+   * The queue manager service.
+   *
+   * @var \Drupal\bento_sdk\Queue\BentoEventQueueManager
+   */
+  private BentoEventQueueManager $queueManager;
+
+  /**
    * Whether credentials have been loaded.
    *
    * @var bool
@@ -78,17 +86,70 @@ class BentoService {
    *   The cache backend.
    * @param \Drupal\Core\State\StateInterface $state
    *   The state service.
+   * @param \Drupal\bento_sdk\Queue\BentoEventQueueManager $queue_manager
+   *   The queue manager service.
    */
-  public function __construct(BentoClient $client, ConfigFactoryInterface $config_factory, LoggerInterface $logger, CacheBackendInterface $cache, StateInterface $state) {
+  public function __construct(BentoClient $client, ConfigFactoryInterface $config_factory, LoggerInterface $logger, CacheBackendInterface $cache, StateInterface $state, BentoEventQueueManager $queue_manager) {
     $this->client = $client;
     $this->configFactory = $config_factory;
     $this->logger = $logger;
     $this->cache = $cache;
     $this->state = $state;
+    $this->queueManager = $queue_manager;
   }
 
   /**
-   * Sends an event to Bento.
+   * Sends an event to Bento via queue for asynchronous processing.
+   *
+   * This method queues events for background processing to ensure zero
+   * impact on page load performance. Falls back to synchronous sending
+   * if queue system is unavailable.
+   *
+   * @param array $event_data
+   *   Event data containing:
+   *   - type: (string) Event type (required)
+   *   - email: (string) User email (required)
+   *   - fields: (array) Additional user fields (optional)
+   *   - details: (array) Event-specific details (optional)
+   *
+   * @return bool
+   *   TRUE if the event was queued successfully, FALSE otherwise.
+   */
+  public function sendEvent(array $event_data): bool {
+    // Basic validation before queuing is now handled by the queue manager.
+    try {
+      // Attempt to queue the event
+      $queued = $this->queueManager->queueEvent($event_data);
+      
+      if ($queued) {
+        $this->logger->info('Bento event queued successfully: @type for @email', [
+          '@type' => $event_data['type'],
+          '@email' => $this->sanitizeEmailForLogging($event_data['email']),
+        ]);
+        return TRUE;
+      }
+      else {
+        // Queue failed, try fallback
+        $this->logger->warning('Failed to queue Bento event, attempting synchronous fallback');
+        return $this->sendEventSync($event_data);
+      }
+    }
+    catch (\Exception $e) {
+      // Queue system error, fallback to synchronous sending
+      $this->logger->warning('Queue system error for Bento event, using synchronous fallback: @message', [
+        '@message' => $this->sanitizeErrorMessage($e->getMessage()),
+      ]);
+      
+      return $this->sendEventSync($event_data);
+    }
+  }
+
+  /**
+   * Sends an event to Bento synchronously (fallback method).
+   *
+   * This method provides synchronous event sending as a fallback when
+   * the queue system is unavailable. It maintains the original behavior
+   * for backwards compatibility and reliability.
    *
    * @param array $event_data
    *   Event data containing:
@@ -100,7 +161,7 @@ class BentoService {
    * @return bool
    *   TRUE if the event was sent successfully, FALSE otherwise.
    */
-  public function sendEvent(array $event_data): bool {
+  public function sendEventSync(array $event_data): bool {
     if (!$this->isConfigured()) {
       $this->logger->error('Bento SDK is not properly configured. Please configure API credentials.');
       return FALSE;
@@ -127,7 +188,7 @@ class BentoService {
       // Send event to Bento API.
       $response = $this->client->post('batch/events', $formatted_data);
       
-      $this->logger->info('Bento event sent successfully: @type for @email', [
+      $this->logger->info('Bento event sent synchronously: @type for @email', [
         '@type' => $event_data['type'],
         '@email' => $this->sanitizeEmailForLogging($event_data['email']),
       ]);
@@ -135,7 +196,7 @@ class BentoService {
       return TRUE;
     }
     catch (\Exception $e) {
-      $this->logger->error('Failed to send Bento event: @message', [
+      $this->logger->error('Failed to send Bento event synchronously: @message', [
         '@message' => $this->sanitizeErrorMessage($e->getMessage()),
       ]);
       return FALSE;
@@ -1317,6 +1378,30 @@ class BentoService {
    */
   public function clearLastError(): void {
     $this->lastError = NULL;
+  }
+
+  /**
+   * Gets queue statistics for monitoring.
+   *
+   * @return array
+   *   Array containing queue statistics:
+   *   - size: Number of items in queue
+   *   - created: When the queue was created
+   */
+  public function getQueueStats(): array {
+    try {
+      return $this->queueManager->getQueueStats();
+    }
+    catch (\Exception $e) {
+      $this->logger->error('Failed to get queue statistics: @message', [
+        '@message' => $this->sanitizeErrorMessage($e->getMessage()),
+      ]);
+      
+      return [
+        'size' => 0,
+        'created' => 0,
+      ];
+    }
   }
 
 }

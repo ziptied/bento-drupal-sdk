@@ -77,17 +77,17 @@ class BentoSettingsForm extends ConfigFormBase {
    * @return \Drupal\Core\Access\AccessResult
    *   The access result.
    */
-  public static function access(AccountInterface $account) {
-    // Allow access if user has any of the Bento SDK permissions.
-    $permissions = [
-      'administer bento sdk',
-      'view bento sdk settings',
-      'edit bento sdk credentials',
-      'edit bento sdk mail settings',
-      'edit bento sdk validation settings',
-      'edit bento sdk performance settings',
-    ];
-
+   public static function access(AccountInterface $account) {
+     // Allow access if user has any of the Bento SDK permissions.
+     $permissions = [
+       'administer bento sdk',
+       'view bento sdk settings',
+       'edit bento sdk credentials',
+       'edit bento sdk mail settings',
+       'edit bento sdk validation settings',
+       'edit bento sdk performance settings',
+       'use bento sdk test events',
+     ];
     foreach ($permissions as $permission) {
       if ($account->hasPermission($permission)) {
         return AccessResult::allowed()->cachePerPermissions();
@@ -352,6 +352,61 @@ class BentoSettingsForm extends ConfigFormBase {
 
     // Attach external JavaScript file for test email functionality
     $form['mail_settings']['test_email_section']['#attached']['library'][] = 'bento_sdk/test-email';
+
+    // Test Events section - for admin testing of event queueing
+    $form['test_events'] = [
+      '#type' => 'fieldset',
+      '#title' => $this->t('Test Events'),
+      '#description' => $this->t('Queue sample events for testing Bento integration. Only administrators can access this section.'),
+      '#access' => $this->hasTestEventsAccess(),
+    ];
+
+    if ($this->hasTestEventsAccess()) {
+      $form['test_events']['event_types'] = [
+        '#type' => 'checkboxes',
+        '#title' => $this->t('Select event types to queue'),
+        '#description' => $this->t('Choose which sample events to add to the processing queue.'),
+        '#options' => $this->getTestEventTypes(),
+        '#default_value' => array_keys($this->getTestEventTypes()), // All checked by default
+      ];
+
+      $form['test_events']['queue_test_events'] = [
+        '#type' => 'button',
+        '#value' => $this->t('Queue Test Events'),
+        '#disabled' => !$this->isConfigured(),
+        '#attributes' => [
+          'class' => ['button--primary'],
+        ],
+        '#ajax' => [
+          'callback' => '::queueTestEventsAjaxCallback',
+          'wrapper' => 'test-events-messages',
+          'method' => 'replace',
+          'effect' => 'fade',
+          'progress' => [
+            'type' => 'throbber',
+            'message' => $this->t('Queueing test events...'),
+          ],
+        ],
+      ];
+
+      // Add status display similar to test email
+      $form['test_events']['queue_status'] = [
+        '#type' => 'markup',
+        '#markup' => '<div id="test-events-status" class="test-email-state"></div>',
+        '#weight' => 5,
+      ];
+
+      // Add messages container for AJAX responses
+      $form['test_events']['messages'] = [
+        '#type' => 'markup',
+        '#markup' => '<div id="test-events-messages"></div>',
+        '#weight' => 10,
+      ];
+
+      if (!$this->isConfigured()) {
+        $form['test_events']['queue_test_events']['#description'] = $this->t('Configure API credentials first to queue test events.');
+      }
+    }
 
     $form['validation_settings'] = [
       '#type' => 'fieldset',
@@ -1262,40 +1317,296 @@ class BentoSettingsForm extends ConfigFormBase {
     }
   }
 
-  /**
-   * Validates security settings for potential issues.
-   *
-   * @param \Drupal\Core\Form\FormStateInterface $form_state
-   *   The form state.
-   */
-  private function validateSecuritySettings(FormStateInterface $form_state): void {
-    if (!$this->hasPerformanceEditAccess()) {
-      return;
-    }
+   /**
+    * Validates security settings for potential issues.
+    *
+    * @param \Drupal\Core\Form\FormStateInterface $form_state
+    *   The form state.
+    */
+   private function validateSecuritySettings(FormStateInterface $form_state): void {
+     if (!$this->hasPerformanceEditAccess()) {
+       return;
+     }
 
-    $ssl_verification = $form_state->getValue('ssl_verification');
-    $request_timeout = $form_state->getValue('request_timeout');
-    $connection_timeout = $form_state->getValue('connection_timeout');
+     $ssl_verification = $form_state->getValue('ssl_verification');
+     $request_timeout = $form_state->getValue('request_timeout');
+     $connection_timeout = $form_state->getValue('connection_timeout');
 
-    // Warn about disabling SSL verification.
-    if (!$ssl_verification) {
-      \Drupal::messenger()->addWarning($this->t('SSL certificate verification is disabled. This should only be used in development environments with self-signed certificates.'));
-    }
+     // Warn about disabling SSL verification.
+     if (!$ssl_verification) {
+       \Drupal::messenger()->addWarning($this->t('SSL certificate verification is disabled. This should only be used in development environments with self-signed certificates.'));
+     }
 
-    // Validate timeout values.
-    if ($connection_timeout >= $request_timeout) {
-      $form_state->setErrorByName('connection_timeout', $this->t('Connection timeout must be less than request timeout.'));
-    }
+     // Validate timeout values.
+     if ($connection_timeout >= $request_timeout) {
+       $form_state->setErrorByName('connection_timeout', $this->t('Connection timeout must be less than request timeout.'));
+     }
 
-    // Warn about very short timeouts.
-    if ($request_timeout < 10) {
-      \Drupal::messenger()->addWarning($this->t('Very short request timeouts may cause API calls to fail unnecessarily.'));
-    }
+     // Warn about very short timeouts.
+     if ($request_timeout < 10) {
+       \Drupal::messenger()->addWarning($this->t('Very short request timeouts may cause API calls to fail unnecessarily.'));
+     }
 
-    // Warn about very long timeouts.
-    if ($request_timeout > 120) {
-      \Drupal::messenger()->addWarning($this->t('Very long request timeouts may impact user experience if the API is slow to respond.'));
-    }
-  }
+     // Warn about very long timeouts.
+     if ($request_timeout > 120) {
+       \Drupal::messenger()->addWarning($this->t('Very long request timeouts may impact user experience if the API is slow to respond.'));
+     }
+   }
+
+   /**
+    * Checks if the current user has access to test events functionality.
+    *
+    * @return bool
+    *   TRUE if the user has permission to use test events.
+    */
+   private function hasTestEventsAccess(): bool {
+     return $this->currentUser->hasPermission('administer bento sdk') ||
+            $this->currentUser->hasPermission('use bento sdk test events');
+   }
+
+   /**
+    * Gets the available test event types.
+    *
+    * @return array
+    *   Array of event types keyed by machine name with human-readable labels.
+    */
+   private function getTestEventTypes(): array {
+     return [
+       'completed_onboarding' => $this->t('Completed Onboarding'),
+       'purchase' => $this->t('Purchase'),
+       'user_registration' => $this->t('User Registration'),
+       'newsletter_signup' => $this->t('Newsletter Signup'),
+       'product_view' => $this->t('Product View'),
+       'cart_abandonment' => $this->t('Cart Abandonment'),
+       'subscription_started' => $this->t('Subscription Started'),
+       'subscription_cancelled' => $this->t('Subscription Cancelled'),
+     ];
+   }
+
+   /**
+    * AJAX callback for queue test events button.
+    *
+    * @param array $form
+    *   The form array.
+    * @param \Drupal\Core\Form\FormStateInterface $form_state
+    *   The form state.
+    *
+    * @return \Drupal\Core\Ajax\AjaxResponse
+    *   The AJAX response.
+    */
+   public function queueTestEventsAjaxCallback(array &$form, FormStateInterface $form_state) {
+     $response = new AjaxResponse();
+
+     try {
+       // Validate permissions
+       if (!$this->hasTestEventsAccess()) {
+         $error_message = $this->t('You do not have permission to queue test events.');
+         $response->addCommand(new MessageCommand($error_message, 'error'));
+         $status_markup = '<div class="messages messages--error">✗ Permission denied.</div>';
+         $response->addCommand(new ReplaceCommand('#test-events-status', $status_markup));
+         return $response;
+       }
+
+       // Validate configuration
+       if (!$this->isConfigured()) {
+         $error_message = $this->t('Please configure API credentials before queuing test events.');
+         $response->addCommand(new MessageCommand($error_message, 'error'));
+         $status_markup = '<div class="messages messages--error">✗ API not configured.</div>';
+         $response->addCommand(new ReplaceCommand('#test-events-status', $status_markup));
+         return $response;
+       }
+
+       // Get selected events
+       $selected_events = array_filter($form_state->getValue('event_types', []));
+       if (empty($selected_events)) {
+         $error_message = $this->t('Please select at least one event type to queue.');
+         $response->addCommand(new MessageCommand($error_message, 'error'));
+         $status_markup = '<div class="messages messages--error">✗ No events selected.</div>';
+         $response->addCommand(new ReplaceCommand('#test-events-status', $status_markup));
+         return $response;
+       }
+
+       // Queue the events
+       $queued_count = 0;
+       $failed_count = 0;
+       $queue_manager = \Drupal::service('bento_sdk.queue_manager');
+
+       foreach ($selected_events as $event_type) {
+         $sample_data = $this->getSampleEventData($event_type);
+         
+         if ($queue_manager->queueEvent($sample_data)) {
+           $queued_count++;
+         } else {
+           $failed_count++;
+         }
+       }
+
+       // Provide feedback messages
+       if ($queued_count > 0) {
+         $success_message = $this->t('Successfully queued @count test events.', [
+           '@count' => $queued_count,
+         ]);
+         $response->addCommand(new MessageCommand($success_message, 'status'));
+       }
+
+       if ($failed_count > 0) {
+         $warning_message = $this->t('Failed to queue @count test events. Check the logs for details.', [
+           '@count' => $failed_count,
+         ]);
+         $response->addCommand(new MessageCommand($warning_message, 'warning'));
+       }
+
+       // Update status display
+       $total_selected = count($selected_events);
+       if ($queued_count === $total_selected && $failed_count === 0) {
+         $status_message = $this->t('✓ All @count test events queued successfully.', [
+           '@count' => $queued_count,
+         ]);
+         $status_class = 'messages messages--status';
+       } elseif ($queued_count > 0 && $failed_count > 0) {
+         $status_message = $this->t('⚠ @queued of @total events queued (@failed failed).', [
+           '@queued' => $queued_count,
+           '@total' => $total_selected,
+           '@failed' => $failed_count,
+         ]);
+         $status_class = 'messages messages--warning';
+       } elseif ($failed_count === $total_selected) {
+         $status_message = $this->t('✗ Failed to queue all @count test events.', [
+           '@count' => $total_selected,
+         ]);
+         $status_class = 'messages messages--error';
+       } else {
+         $status_message = $this->t('No events were processed.');
+         $status_class = 'messages messages--warning';
+       }
+
+       $status_markup = '<div class="' . $status_class . '">' . $status_message . '</div>';
+       $response->addCommand(new ReplaceCommand('#test-events-status', $status_markup));
+
+       // Log the action for audit trail
+       $this->logger->info('Test events queued via AJAX by user @username (ID: @uid). Queued: @queued, Failed: @failed', [
+         '@username' => $this->currentUser->getAccountName(),
+         '@uid' => $this->currentUser->id(),
+         '@queued' => $queued_count,
+         '@failed' => $failed_count,
+       ]);
+
+     } catch (\Exception $e) {
+       $error_message = $this->t('An error occurred while queuing test events: @message', [
+         '@message' => $e->getMessage(),
+       ]);
+       $response->addCommand(new MessageCommand($error_message, 'error'));
+       
+       $status_markup = '<div class="messages messages--error">✗ System error occurred.</div>';
+       $response->addCommand(new ReplaceCommand('#test-events-status', $status_markup));
+
+       $this->logger->error('Exception while queuing test events via AJAX: @message', [
+         '@message' => $e->getMessage(),
+       ]);
+     }
+
+     return $response;
+   }
+
+   /**
+    * Gets sample event data for a given event type.
+    *
+    * @param string $event_type
+    *   The event type machine name.
+    *
+    * @return array
+    *   Sample event data structure.
+    */
+   private function getSampleEventData(string $event_type): array {
+     // Base sample data - using admin user's email for testing
+     $admin_email = $this->currentUser->getEmail() ?: 'admin@example.com';
+     
+     $base_data = [
+       'type' => $event_type,
+       'email' => $admin_email,
+       'fields' => [
+         'first_name' => 'Test',
+         'last_name' => 'User',
+         'source' => 'drupal_test_events',
+       ],
+     ];
+
+     // Add event-specific details based on type
+     switch ($event_type) {
+       case 'completed_onboarding':
+         $base_data['details'] = [
+           'onboarding_step' => 'profile_complete',
+           'completion_date' => date('Y-m-d H:i:s'),
+         ];
+         break;
+
+       case 'purchase':
+         $base_data['details'] = [
+           'order_id' => 'TEST-' . time(),
+           'total' => 99.99,
+           'currency' => 'USD',
+           'items' => [
+             [
+               'name' => 'Sample Product',
+               'price' => 99.99,
+               'quantity' => 1,
+             ],
+           ],
+         ];
+         break;
+
+       case 'user_registration':
+         $base_data['details'] = [
+           'registration_date' => date('Y-m-d H:i:s'),
+           'user_agent' => 'Drupal Test Event',
+         ];
+         break;
+
+       case 'newsletter_signup':
+         $base_data['details'] = [
+           'signup_source' => 'admin_test',
+           'preferences' => ['weekly_newsletter', 'product_updates'],
+         ];
+         break;
+
+       case 'product_view':
+         $base_data['details'] = [
+           'product_id' => 'SAMPLE-PRODUCT-123',
+           'product_name' => 'Sample Product',
+           'category' => 'Test Category',
+           'price' => 49.99,
+         ];
+         break;
+
+       case 'cart_abandonment':
+         $base_data['details'] = [
+           'cart_id' => 'CART-' . time(),
+           'cart_total' => 149.99,
+           'items_count' => 2,
+           'abandonment_time' => date('Y-m-d H:i:s'),
+         ];
+         break;
+
+       case 'subscription_started':
+         $base_data['details'] = [
+           'subscription_id' => 'SUB-' . time(),
+           'plan_name' => 'Premium Plan',
+           'monthly_price' => 29.99,
+           'start_date' => date('Y-m-d'),
+         ];
+         break;
+
+       case 'subscription_cancelled':
+         $base_data['details'] = [
+           'subscription_id' => 'SUB-' . (time() - 86400),
+           'plan_name' => 'Premium Plan',
+           'cancellation_reason' => 'user_request',
+           'cancellation_date' => date('Y-m-d'),
+         ];
+         break;
+     }
+
+     return $base_data;
+   }
 
 }
