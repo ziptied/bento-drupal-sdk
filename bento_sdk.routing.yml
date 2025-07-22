@@ -16,4 +16,4 @@ bento_sdk.test_email:
   requirements:
     _permission: 'administer bento sdk'
   options:
-    _csrf_token: FALSE
+    _csrf_token: TRUE

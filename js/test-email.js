@@ -18,7 +18,8 @@
     }
     
     // Make fetch request to our endpoint
-    fetch("/admin/config/bento/test-email", {
+    var endpoint = (typeof Drupal !== 'undefined' && Drupal.url) ? Drupal.url('admin/config/bento/test-email') : '/admin/config/bento/test-email';
+    fetch(endpoint, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",

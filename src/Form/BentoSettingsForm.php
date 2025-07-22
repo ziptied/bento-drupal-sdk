@@ -870,29 +870,6 @@ class BentoSettingsForm extends ConfigFormBase {
   }
 
   /**
-   * Increments the test email rate limit counter.
-   */
-  private function incrementTestEmailRateLimit(): void {
-    $user_id = $this->currentUser->id();
-    $cache_key = 'bento_test_email_rate_limit:' . $user_id;
-    
-    // Get current usage
-    $cached = \Drupal::cache()->get($cache_key);
-    $current_usage = $cached ? $cached->data : ['count' => 0, 'reset_time' => time() + 3600];
-    
-    // Check if we need to reset the counter
-    if (time() > $current_usage['reset_time']) {
-      $current_usage = ['count' => 0, 'reset_time' => time() + 3600];
-    }
-    
-    // Increment counter
-    $current_usage['count']++;
-    
-    // Store updated usage
-    \Drupal::cache()->set($cache_key, $current_usage, $current_usage['reset_time']);
-  }
-
-  /**
    * AJAX callback to refresh the authors dropdown.
    *
    * @param array $form
