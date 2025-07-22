@@ -1409,6 +1409,7 @@ class BentoService {
    *
    * Extracts form data from the webform submission and creates a Bento event.
    * This method handles email validation, field mapping, and error handling.
+   * Only processes submissions if webform integration is enabled.
    *
    * @param \Drupal\webform\WebformSubmissionInterface $submission
    *   The webform submission object.
@@ -1417,6 +1418,13 @@ class BentoService {
    *   TRUE if the event was processed successfully, FALSE otherwise.
    */
   public function processWebformSubmission($submission): bool {
+    // Check if webform integration is enabled
+    $config = $this->configFactory->get('bento_sdk.settings');
+    if (!$config->get('enable_webform_integration')) {
+      $this->logger->info('Webform submission skipped - webform integration is disabled');
+      return FALSE;
+    }
+
     try {
       // Extract form data from submission
       $form_data = $submission->getData();
@@ -1456,6 +1464,7 @@ class BentoService {
    *
    * Extracts email, first_name, last_name and other form data to create
    * a properly formatted Bento event. Email is required for processing.
+   * Uses the configured event type from settings.
    *
    * @param array $form_data
    *   The form data from the webform submission.
@@ -1472,9 +1481,13 @@ class BentoService {
       return NULL;
     }
     
+    // Get configured event type
+    $config = $this->configFactory->get('bento_sdk.settings');
+    $event_type = $config->get('webform_event_type') ?: '$webform_submission';
+    
     // Start building the event
     $event = [
-      'type' => '$webform_submission',
+      'type' => $event_type,
       'email' => $email,
     ];
     

@@ -603,6 +603,44 @@ class BentoSettingsForm extends ConfigFormBase {
       '#disabled' => !$can_edit_performance,
     ];
 
+    // Webform Integration Settings
+    $form['webform_settings'] = [
+      '#type' => 'fieldset',
+      '#title' => $this->t('Webform Integration'),
+      '#description' => $this->t('Configure how webform submissions are processed and sent to Bento.'),
+    ];
+
+    if (!$can_edit_performance) {
+      $form['webform_settings']['#description'] .= ' ' . $this->t('<strong>Note:</strong> You do not have permission to modify webform settings.');
+    }
+
+    $form['webform_settings']['enable_webform_integration'] = [
+      '#type' => 'checkbox',
+      '#title' => $this->t('Enable Webform Integration'),
+      '#description' => $this->t('Automatically send Bento events when webforms are submitted. Requires the Webform module to be installed.'),
+      '#default_value' => $config->get('enable_webform_integration') ?? TRUE,
+      '#disabled' => !$can_edit_performance || !\Drupal::moduleHandler()->moduleExists('webform'),
+    ];
+
+    if (!\Drupal::moduleHandler()->moduleExists('webform')) {
+      $form['webform_settings']['enable_webform_integration']['#description'] .= ' ' . $this->t('<strong>Note:</strong> Webform module is not installed.');
+    }
+
+    $form['webform_settings']['webform_event_type'] = [
+      '#type' => 'textfield',
+      '#title' => $this->t('Default Webform Event Type'),
+      '#description' => $this->t('The default event type to send for webform submissions. Use $ prefix for system events (e.g., $webform_submission).'),
+      '#default_value' => $config->get('webform_event_type') ?: '$webform_submission',
+      '#required' => TRUE,
+      '#maxlength' => 100,
+      '#disabled' => !$can_edit_performance,
+      '#states' => [
+        'visible' => [
+          ':input[name="enable_webform_integration"]' => ['checked' => TRUE],
+        ],
+      ],
+    ];
+
     // Attach AJAX library to ensure AJAX functionality works
     $form['#attached']['library'][] = 'core/drupal.ajax';
     
@@ -690,6 +728,21 @@ class BentoSettingsForm extends ConfigFormBase {
       $available_authors = $this->getAuthorOptions();
       if (!isset($available_authors[$default_author_email])) {
         $form_state->setErrorByName('default_author_email', $this->t('Selected author is not available. Please refresh the authors list.'));
+      }
+    }
+
+    // Validate webform event type if provided.
+    $webform_event_type = $form_state->getValue('webform_event_type');
+    if (!empty($webform_event_type)) {
+      // Event type can only contain letters, numbers, underscores, hyphens, and dollar signs
+      if (!preg_match('/^[a-zA-Z0-9_$-]+$/', $webform_event_type)) {
+        $form_state->setErrorByName('webform_event_type', 
+          $this->t('Event type can only contain letters, numbers, underscores, hyphens, and dollar signs.'));
+      }
+      
+      // Warn if event type doesn't start with $ (system events convention)
+      if (!str_starts_with($webform_event_type, '$')) {
+        \Drupal::messenger()->addWarning($this->t('Event types typically start with $ for system events (e.g., $webform_submission).'));
       }
     }
   }
@@ -780,6 +833,8 @@ class BentoSettingsForm extends ConfigFormBase {
         'request_timeout',
         'connection_timeout',
         'enable_request_id_tracking',
+        'enable_webform_integration',
+        'webform_event_type',
       ];
 
       foreach ($performance_fields as $field) {

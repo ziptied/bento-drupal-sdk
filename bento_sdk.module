@@ -69,6 +69,13 @@ function bento_sdk_webform_submission_insert(WebformSubmissionInterface $webform
       return;
     }
     
+    // Check if webform integration is enabled
+    $config = \Drupal::config('bento_sdk.settings');
+    if (!$config->get('enable_webform_integration')) {
+      \Drupal::logger('bento_sdk')->info('Webform submission skipped - webform integration disabled');
+      return;
+    }
+    
     // Process the webform submission
     $bento_service->processWebformSubmission($webform_submission);
   }
