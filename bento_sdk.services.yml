@@ -19,3 +19,14 @@ services:
   logger.channel.bento_sdk:
     parent: logger.channel_base
     arguments: ['bento_sdk']
+
+  # Commerce integration services
+  bento_sdk.commerce_processor:
+    class: Drupal\bento_sdk\CommerceEventProcessor
+    arguments: ['@bento.sdk', '@config.factory', '@logger.channel.bento_sdk']
+
+  bento_sdk.commerce_event_subscriber:
+    class: Drupal\bento_sdk\CommerceEventSubscriber
+    arguments: ['@bento_sdk.commerce_processor', '@logger.channel.bento_sdk']
+    tags:
+      - { name: event_subscriber }
