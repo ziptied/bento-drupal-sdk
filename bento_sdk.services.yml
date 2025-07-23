@@ -30,3 +30,13 @@ services:
     arguments: ['@bento_sdk.commerce_processor', '@logger.channel.bento_sdk']
     tags:
       - { name: event_subscriber }
+
+  bento_sdk.cart_abandonment:
+    class: Drupal\bento_sdk\CartAbandonmentService
+    arguments: 
+      - '@config.factory'
+      - '@entity_type.manager'
+      - '@database'
+      - '@state'
+      - '@logger.channel.bento_sdk'
+      - '@bento.sdk'
