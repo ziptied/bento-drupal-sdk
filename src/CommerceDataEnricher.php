@@ -568,18 +568,21 @@ class CommerceDataEnricher {
    *   The customer's lifetime value or NULL if no completed orders.
    */
   private function getCustomerLifetimeValue($customer): ?float {
-    $order_storage = $this->entityTypeManager->getStorage('commerce_order');
-    $orders = $order_storage->loadByProperties([
-      'uid' => $customer->id(),
-      'state' => 'completed',
-    ]);
-
-    $total = 0;
-    foreach ($orders as $order) {
-      $total += $order->getTotalPrice()->getNumber();
+    // Use the database API to sum the total price of completed orders for the customer.
+    $connection = \Drupal::database();
+    $query = $connection->select('commerce_order', 'o')
+      ->fields('o', [])
+      ->condition('o.uid', $customer->id())
+      ->condition('o.state', 'completed');
+    // The total price is stored in the commerce_order table as a serialized field (total_price),
+    // so we need to extract the numeric value. We'll sum the numeric part of the total_price field.
+    // This assumes the total_price field is a serialized array with a 'number' key.
+    $query->addExpression("SUM(CAST(JSON_UNQUOTE(JSON_EXTRACT(o.total_price, '$.number')) AS DECIMAL(20, 8)))", 'total');
+    $result = $query->execute()->fetchField();
+    if ($result !== FALSE && $result !== NULL) {
+      return (float) $result;
     }
-
-    return $total > 0 ? (float) $total : NULL;
+    return NULL;
   }
 
   /**

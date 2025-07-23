@@ -727,16 +727,6 @@ class BentoSettingsForm extends ConfigFormBase {
         'id' => 'test-webform-button',
       ],
       '#weight' => 1,
-      '#ajax' => [
-        'callback' => '::sendTestWebformEventCallback',
-        'wrapper' => 'test-webform-messages',
-        'method' => 'replace',
-        'effect' => 'fade',
-        'progress' => [
-          'type' => 'throbber',
-          'message' => $this->t('Sending test webform event...'),
-        ],
-      ],
     ];
 
     // Add messages container
@@ -745,6 +735,9 @@ class BentoSettingsForm extends ConfigFormBase {
       '#markup' => '<div id="test-webform-messages"></div>',
       '#weight' => 2,
     ];
+
+    // Attach JavaScript library for test webform functionality
+    $form['webform_settings']['test_webform_section']['#attached']['library'][] = 'bento_sdk/test-webform';
 
     // Commerce Integration Settings - Add comprehensive configuration UI
     $this->addCommerceIntegrationSection($form, $config);
@@ -2231,8 +2224,6 @@ class BentoSettingsForm extends ConfigFormBase {
 
       return $base_data;
     }
-
-
 
     /**
      * Increments the test email counter for rate limiting.

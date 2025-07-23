@@ -171,6 +171,17 @@ class CartAbandonmentService {
       return;
     }
 
+    $check_interval = $config->get('commerce_integration.cart_abandonment.check_interval') ?? self::MIN_CHECK_INTERVAL_MINUTES;
+    // Validate check interval value
+    try {
+      $this->validateCheckInterval($check_interval);
+    } catch (\InvalidArgumentException $e) {
+      $this->logger->error('Invalid cart abandonment check interval configuration: @error', [
+        '@error' => $this->sanitizeErrorMessage($e->getMessage()),
+      ]);
+      return;
+    }
+
     $threshold_timestamp = time() - ($threshold_hours * 3600);
     $batch_size = $config->get('commerce_integration.cart_abandonment.batch_size') ?? self::DEFAULT_BATCH_SIZE;
 

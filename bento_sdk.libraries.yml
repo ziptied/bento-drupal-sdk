@@ -3,3 +3,9 @@ test-email:
     js/test-email.js: {}
   dependencies:
     - core/drupal
+
+test-webform:
+  js:
+    js/test-webform.js: {}
+  dependencies:
+    - core/drupal

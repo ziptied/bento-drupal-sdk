@@ -17,3 +17,13 @@ bento_sdk.test_email:
     _permission: 'administer bento sdk'
   options:
     _csrf_token: TRUE
+
+bento_sdk.test_webform:
+  path: '/admin/config/bento/test-webform'
+  defaults:
+    _controller: '\Drupal\bento_sdk\Controller\TestEmailController::sendTestWebformEvent'
+  methods: [POST]
+  requirements:
+    _permission: 'administer bento sdk'
+  options:
+    _csrf_token: TRUE

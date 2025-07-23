@@ -1633,17 +1633,6 @@ class BentoService {
   }
 
   /**
-   * Check if payment event tracking is enabled.
-   *
-   * @return bool
-   *   TRUE if payment events should be tracked, FALSE otherwise.
-   */
-  public function isPaymentTrackingEnabled(): bool {
-    $config = $this->configFactory->get('bento_sdk.settings');
-    return $this->isCommerceIntegrationEnabled() && $config->get('commerce_integration.track_payment_events');
-  }
-
-  /**
    * Check if cart abandonment tracking is enabled.
    *
    * @return bool

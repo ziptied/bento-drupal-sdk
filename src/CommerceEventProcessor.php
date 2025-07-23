@@ -86,95 +86,90 @@ class CommerceEventProcessor {
    * @param string $event_type
    *   The event type (e.g., '$cart_created', '$cart_updated').
    */
-  public function processCartEvent($cart, string $event_type): void {
-    // Check if Commerce classes are available
-    if (!class_exists('\Drupal\commerce_order\Entity\OrderInterface')) {
-      return;
-    }
+   public function processCartEvent($cart, string $event_type): void {
+     // Check if Commerce classes are available
+     if (!class_exists('\Drupal\commerce_order\Entity\OrderInterface')) {
+       return;
+     }
 
-    // Check if Commerce integration is enabled
-    if (!$this->bentoService->isCommerceIntegrationEnabled()) {
-      return;
-    }
+     // Check if Commerce integration is enabled
+     if (!$this->bentoService->isCommerceIntegrationEnabled()) {
+       return;
+     }
 
-    // Check if cart event tracking is specifically enabled
-    if (!$this->bentoService->isCartTrackingEnabled()) {
-      return;
-    }
+     // Check if cart event tracking is specifically enabled
+     if (!$this->bentoService->isCartTrackingEnabled()) {
+       return;
+     }
 
-    // Check if email collection is allowed
-    if (!$this->emailExtractor->isEmailCollectionAllowed($cart)) {
-      $this->logger->info('Skipping cart event - email collection not allowed for cart @cart_id', [
-        '@cart_id' => $cart->id(),
-      ]);
-      return;
-    }
+     // Check if email collection is allowed
+     if (!$this->emailExtractor->isEmailCollectionAllowed($cart)) {
+       $this->logger->info('Skipping cart event - email collection not allowed for cart @cart_id', [
+         '@cart_id' => $cart->id(),
+       ]);
+       return;
+     }
 
-    // Extract email from cart
-    $email = $this->emailExtractor->extractEmailFromOrder($cart);
-    if (!$email) {
-      $this->logger->info('Skipping cart event - no valid email found for cart @cart_id', [
-        '@cart_id' => $cart->id(),
-      ]);
-      return;
-    }
+     // Extract email from cart
+     $email = $this->emailExtractor->extractEmailFromOrder($cart);
+     if (!$email) {
+       $this->logger->info('Skipping cart event - no valid email found for cart @cart_id', [
+         '@cart_id' => $cart->id(),
+       ]);
+       return;
+     }
 
-    // Build event data with enriched information
-    $event_data = [
-      'type' => $event_type,
-      'email' => $email,
-      'details' => [
-        'cart_id' => $cart->id(),
-        'cart_total' => $this->formatPrice($cart->getTotalPrice()),
-        'currency' => $cart->getTotalPrice()->getCurrencyCode(),
-        'item_count' => count($cart->getItems()),
-        'items' => $this->dataEnricher->enrichOrderItems($cart->getItems()),
-        'created' => $cart->getCreatedTime(),
-        'changed' => $cart->getChangedTime(),
-        'cart_url' => $cart->toUrl('canonical', ['absolute' => TRUE])->toString(),
-      ],
-    ];
+     // Build event data with enriched information
+     $event_data = [
+       'type' => $event_type,
+       'email' => $email,
+       'details' => [
+         'cart_id' => $cart->id(),
+         'cart_total' => $this->formatPrice($cart->getTotalPrice()),
+         'currency' => $cart->getTotalPrice()->getCurrencyCode(),
+         'item_count' => count($cart->getItems()),
+         'items' => $this->dataEnricher->enrichOrderItems($cart->getItems()),
+         'created' => $cart->getCreatedTime(),
+         'changed' => $cart->getChangedTime(),
+         'cart_url' => $cart->toUrl('canonical', ['absolute' => TRUE])->toString(),
+       ],
+     ];
 
-    // Add enriched customer context
-    $customer_context = $this->dataEnricher->enrichCustomerContext($cart);
-    if (!empty($customer_context)) {
-      $event_data['details']['customer'] = $customer_context;
-    }
+     // Add enriched customer context
+     $customer_context = $this->dataEnricher->enrichCustomerContext($cart);
+     if (!empty($customer_context)) {
+       $event_data['details']['customer'] = $customer_context;
+     }
 
-    // Add enriched order context
-    $order_context = $this->dataEnricher->enrichOrderContext($cart);
-    if (!empty($order_context)) {
-      $event_data['details'] = array_merge($event_data['details'], $order_context);
-    }
+     // Add enriched order context
+     $order_context = $this->dataEnricher->enrichOrderContext($cart);
+     if (!empty($order_context)) {
+       $event_data['details'] = array_merge($event_data['details'], $order_context);
+     }
 
-    // Add customer fields if available
-    $customer_name = $this->emailExtractor->extractCustomerName($cart);
-    if (!empty($customer_name)) {
-      $event_data['fields'] = $customer_name;
-    }
+     // Add customer fields if available
+     $customer_name = $this->emailExtractor->extractCustomerName($cart);
+     if (!empty($customer_name)) {
+       $event_data['fields'] = $customer_name;
+     }
 
-    // Send event
-    $success = $this->bentoService->sendEvent($event_data);
-    
-    if ($success) {
-      $this->logger->info('Commerce cart event sent successfully: @type for cart @cart_id', [
-        '@type' => $event_type,
-        '@cart_id' => $cart->id(),
-      ]);
-    } else {
-      $this->logger->warning('Failed to send Commerce cart event: @type for cart @cart_id', [
-        '@type' => $event_type,
-        '@cart_id' => $cart->id(),
-      ]);
-    }
-  }
+     // Send event
+     $success = $this->bentoService->sendEvent($event_data);
+     
+     if ($success) {
+       $this->logger->info('Commerce cart event sent successfully: @type for cart @cart_id', [
+         '@type' => $event_type,
+         '@cart_id' => $cart->id(),
+       ]);
+     } else {
+       $this->logger->warning('Failed to send Commerce cart event: @type for cart @cart_id', [
+         '@type' => $event_type,
+         '@cart_id' => $cart->id(),
+       ]);
+     }
+   }
 
-
-
-
-
-  /**
-   * Formats a price object for Bento event data.
+   /**   * Formats a price object for Bento event data.
    *
    * @param \Drupal\commerce_price\Price $price
    *   The price object.
@@ -197,106 +192,105 @@ class CommerceEventProcessor {
    * @param string $event_type
    *   The event type (e.g., '$purchase', '$order_fulfilled').
    */
-  public function processOrderEvent($order, string $event_type): void {
-    // Check if Commerce classes are available
-    if (!class_exists('\Drupal\commerce_order\Entity\OrderInterface')) {
-      return;
-    }
+   public function processOrderEvent($order, string $event_type): void {
+     // Check if Commerce classes are available
+     if (!class_exists('\Drupal\commerce_order\Entity\OrderInterface')) {
+       return;
+     }
 
-    // Check if Commerce integration is enabled
-    if (!$this->bentoService->isCommerceIntegrationEnabled()) {
-      return;
-    }
+     // Check if Commerce integration is enabled
+     if (!$this->bentoService->isCommerceIntegrationEnabled()) {
+       return;
+     }
 
-    // Check if order event tracking is specifically enabled
-    if (!$this->bentoService->isOrderTrackingEnabled()) {
-      return;
-    }
+     // Check if order event tracking is specifically enabled
+     if (!$this->bentoService->isOrderTrackingEnabled()) {
+       return;
+     }
 
-    // Check if email collection is allowed
-    if (!$this->emailExtractor->isEmailCollectionAllowed($order)) {
-      $this->logger->info('Skipping order event - email collection not allowed for order @order_id', [
-        '@order_id' => $order->id(),
-      ]);
-      return;
-    }
+     // Check if email collection is allowed
+     if (!$this->emailExtractor->isEmailCollectionAllowed($order)) {
+       $this->logger->info('Skipping order event - email collection not allowed for order @order_id', [
+         '@order_id' => $order->id(),
+       ]);
+       return;
+     }
 
-    // Extract email from order
-    $email = $this->emailExtractor->extractEmailFromOrder($order);
-    if (!$email) {
-      $this->logger->info('Skipping order event - no valid email found for order @order_id', [
-        '@order_id' => $order->id(),
-      ]);
-      return;
-    }
+     // Extract email from order
+     $email = $this->emailExtractor->extractEmailFromOrder($order);
+     if (!$email) {
+       $this->logger->info('Skipping order event - no valid email found for order @order_id', [
+         '@order_id' => $order->id(),
+       ]);
+       return;
+     }
 
-    // Build event data with enriched information
-    $event_data = [
-      'type' => $event_type,
-      'email' => $email,
-      'details' => [
-        'order_id' => $order->id(),
-        'order_number' => $order->getOrderNumber(),
-        'order_total' => $this->formatPrice($order->getTotalPrice()),
-        'currency' => $order->getTotalPrice()->getCurrencyCode(),
-        'order_state' => $order->getState()->getId(),
-        'item_count' => count($order->getItems()),
-        'items' => $this->dataEnricher->enrichOrderItems($order->getItems()),
-        'placed' => $order->getPlacedTime(),
-        'completed' => $order->getCompletedTime(),
-      ],
-    ];
+     // Build event data with enriched information
+     $event_data = [
+       'type' => $event_type,
+       'email' => $email,
+       'details' => [
+         'order_id' => $order->id(),
+         'order_number' => $order->getOrderNumber(),
+         'order_total' => $this->formatPrice($order->getTotalPrice()),
+         'currency' => $order->getTotalPrice()->getCurrencyCode(),
+         'order_state' => $order->getState()->getId(),
+         'item_count' => count($order->getItems()),
+         'items' => $this->dataEnricher->enrichOrderItems($order->getItems()),
+         'placed' => $order->getPlacedTime(),
+         'completed' => $order->getCompletedTime(),
+       ],
+     ];
 
-    // Add unique identifier and value for purchase events
-    if ($event_type === '$purchase') {
-      $event_data['details']['unique'] = [
-        'key' => $order->getOrderNumber(),
-      ];
-      $event_data['details']['value'] = [
-        'currency' => $order->getTotalPrice()->getCurrencyCode(),
-        'amount' => (int) ($order->getTotalPrice()->getNumber() * 100), // Convert to cents
-      ];
-    }
+     // Add unique identifier and value for purchase events
+     if ($event_type === '$purchase') {
+       $event_data['details']['unique'] = [
+         'key' => $order->getOrderNumber(),
+       ];
+       $event_data['details']['value'] = [
+         'currency' => $order->getTotalPrice()->getCurrencyCode(),
+         'amount' => (int) ($order->getTotalPrice()->getNumber() * 100), // Convert to cents
+       ];
+     }
 
-    // Add enriched customer context
-    $customer_context = $this->dataEnricher->enrichCustomerContext($order);
-    if (!empty($customer_context)) {
-      $event_data['details']['customer'] = $customer_context;
-    }
+     // Add enriched customer context
+     $customer_context = $this->dataEnricher->enrichCustomerContext($order);
+     if (!empty($customer_context)) {
+       $event_data['details']['customer'] = $customer_context;
+     }
 
-    // Add enriched order context
-    $order_context = $this->dataEnricher->enrichOrderContext($order);
-    if (!empty($order_context)) {
-      $event_data['details'] = array_merge($event_data['details'], $order_context);
-    }
+     // Add enriched order context
+     $order_context = $this->dataEnricher->enrichOrderContext($order);
+     if (!empty($order_context)) {
+       $event_data['details'] = array_merge($event_data['details'], $order_context);
+     }
 
-    // Add customer information
-    $customer_name = $this->emailExtractor->extractCustomerName($order);
-    if (!empty($customer_name)) {
-      $event_data['fields'] = $customer_name;
-    }
-    
-    // Add billing/shipping information
-    $this->addAddressInformation($event_data, $order);
+     // Add customer information
+     $customer_name = $this->emailExtractor->extractCustomerName($order);
+     if (!empty($customer_name)) {
+       $event_data['fields'] = $customer_name;
+     }
+     
+     // Add billing/shipping information
+     $this->addAddressInformation($event_data, $order);
 
-    // Send event
-    $success = $this->bentoService->sendEvent($event_data);
-    
-    if ($success) {
-      $this->logger->info('Commerce order event sent successfully: @type for order @order_id', [
-        '@type' => $event_type,
-        '@order_id' => $order->id(),
-      ]);
-    } else {
-      $this->logger->warning('Failed to send Commerce order event: @type for order @order_id', [
-        '@type' => $event_type,
-        '@order_id' => $order->id(),
-      ]);
-    }
-  }
+     // Send event
+     $success = $this->bentoService->sendEvent($event_data);
+     
+     if ($success) {
+       $this->logger->info('Commerce order event sent successfully: @type for order @order_id', [
+         '@type' => $event_type,
+         '@order_id' => $order->id(),
+       ]);
+     } else {
+       $this->logger->warning('Failed to send Commerce order event: @type for order @order_id', [
+         '@type' => $event_type,
+         '@order_id' => $order->id(),
+       ]);
+     }
+   }
 
-  /**
-   * Processes a payment event and sends it to Bento.
+   /**   * Processes a payment event and sends it to Bento.
    *
    * @param \Drupal\commerce_payment\Entity\PaymentInterface $payment
    *   The payment entity.
@@ -346,7 +340,7 @@ class CommerceEventProcessor {
         'order_id' => $order->id(),
         'order_number' => $order->getOrderNumber(),
         'payment_id' => $payment->id(),
-        'payment_method' => $payment->getPaymentMethod() ? $payment->getPaymentMethod()->label() : 'Unknown',
+        'payment_method' => $payment->getPaymentMethod() && $payment->getPaymentMethod()->label() !== null ? $payment->getPaymentMethod()->label() : 'Unknown',
         'payment_gateway' => $payment->getPaymentGateway()->label(),
         'amount_paid' => $this->formatPrice($payment->getAmount()),
         'payment_state' => $payment->getState()->getId(),
@@ -422,7 +416,5 @@ class CommerceEventProcessor {
       }
     }
   }
-
-
 
 }
