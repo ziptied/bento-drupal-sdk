@@ -46,6 +46,11 @@ class CommerceDataEnricher {
   ) {
     $this->entityTypeManager = $entity_type_manager;
     $this->logger = $logger;
+
+    // Check if Commerce module is available
+    if (!class_exists('\Drupal\commerce_order\Entity\OrderInterface')) {
+      $this->logger->warning('Commerce module not available - CommerceDataEnricher will not function properly');
+    }
   }
 
   /**
@@ -61,6 +66,11 @@ class CommerceDataEnricher {
    *   Array of enriched item data.
    */
   public function enrichOrderItems(array $items): array {
+    // Check if Commerce is available
+    if (!class_exists('\Drupal\commerce_order\Entity\OrderInterface')) {
+      return [];
+    }
+
     $enriched_items = [];
 
     foreach ($items as $item) {
@@ -368,7 +378,11 @@ class CommerceDataEnricher {
    * @return array
    *   Array of customer context data.
    */
-  public function enrichCustomerContext(OrderInterface $order): array {
+  public function enrichCustomerContext($order): array {
+    // Check if Commerce is available
+    if (!class_exists('\Drupal\commerce_order\Entity\OrderInterface')) {
+      return [];
+    }
     $customer_context = [];
 
     $customer = $order->getCustomer();
@@ -403,7 +417,11 @@ class CommerceDataEnricher {
    * @return array
    *   Array of order context data.
    */
-  public function enrichOrderContext(OrderInterface $order): array {
+  public function enrichOrderContext($order): array {
+    // Check if Commerce is available
+    if (!class_exists('\Drupal\commerce_order\Entity\OrderInterface')) {
+      return [];
+    }
     $order_context = [
       'order_created' => $order->getCreatedTime(),
       'order_placed' => $order->getPlacedTime(),

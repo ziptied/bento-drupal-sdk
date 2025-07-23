@@ -55,6 +55,11 @@ class CommerceEmailExtractor {
     $this->configFactory = $config_factory;
     $this->entityTypeManager = $entity_type_manager;
     $this->logger = $logger;
+
+    // Check if Commerce module is available
+    if (!class_exists('\Drupal\commerce_order\Entity\OrderInterface')) {
+      $this->logger->warning('Commerce module not available - CommerceEmailExtractor will not function properly');
+    }
   }
 
   /**
@@ -69,7 +74,11 @@ class CommerceEmailExtractor {
    * @return string|null
    *   The email address if found and valid, NULL otherwise.
    */
-  public function extractEmailFromOrder(OrderInterface $order): ?string {
+  public function extractEmailFromOrder($order): ?string {
+    // Check if Commerce is available
+    if (!class_exists('\Drupal\commerce_order\Entity\OrderInterface')) {
+      return NULL;
+    }
     $extraction_methods = [
       'getOrderEmail',
       'getCustomerEmail',
@@ -264,7 +273,11 @@ class CommerceEmailExtractor {
    * @return array
    *   Array with 'first_name' and 'last_name' keys if found.
    */
-  public function extractCustomerName(OrderInterface $order): array {
+  public function extractCustomerName($order): array {
+    // Check if Commerce is available
+    if (!class_exists('\Drupal\commerce_order\Entity\OrderInterface')) {
+      return [];
+    }
     $name_data = [
       'first_name' => NULL,
       'last_name' => NULL,
@@ -382,7 +395,11 @@ class CommerceEmailExtractor {
    * @return bool
    *   TRUE if email collection is allowed, FALSE otherwise.
    */
-  public function isEmailCollectionAllowed(OrderInterface $order): bool {
+  public function isEmailCollectionAllowed($order): bool {
+    // Check if Commerce is available
+    if (!class_exists('\Drupal\commerce_order\Entity\OrderInterface')) {
+      return FALSE;
+    }
     // Check if customer has opted out of email collection
     if ($customer = $order->getCustomer()) {
       if ($customer->isAuthenticated()) {
