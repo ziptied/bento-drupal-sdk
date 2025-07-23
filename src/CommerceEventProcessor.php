@@ -71,6 +71,11 @@ class CommerceEventProcessor {
     $this->logger = $logger;
     $this->emailExtractor = $email_extractor;
     $this->dataEnricher = $data_enricher;
+
+    // Log warning if Commerce classes are not available
+    if (!class_exists('\Drupal\commerce_order\Entity\OrderInterface')) {
+      $this->logger->warning('Commerce module not available - CommerceEventProcessor will not function properly');
+    }
   }
 
   /**
@@ -81,7 +86,12 @@ class CommerceEventProcessor {
    * @param string $event_type
    *   The event type (e.g., '$cart_created', '$cart_updated').
    */
-  public function processCartEvent(OrderInterface $cart, string $event_type): void {
+  public function processCartEvent($cart, string $event_type): void {
+    // Check if Commerce classes are available
+    if (!class_exists('\Drupal\commerce_order\Entity\OrderInterface')) {
+      return;
+    }
+
     // Check if Commerce integration is enabled
     if (!$this->bentoService->isCommerceIntegrationEnabled()) {
       return;
@@ -187,7 +197,12 @@ class CommerceEventProcessor {
    * @param string $event_type
    *   The event type (e.g., '$purchase', '$order_fulfilled').
    */
-  public function processOrderEvent(OrderInterface $order, string $event_type): void {
+  public function processOrderEvent($order, string $event_type): void {
+    // Check if Commerce classes are available
+    if (!class_exists('\Drupal\commerce_order\Entity\OrderInterface')) {
+      return;
+    }
+
     // Check if Commerce integration is enabled
     if (!$this->bentoService->isCommerceIntegrationEnabled()) {
       return;
@@ -289,6 +304,11 @@ class CommerceEventProcessor {
    *   The event type (e.g., '$order_paid').
    */
   public function processPaymentEvent($payment, string $event_type): void {
+    // Check if Commerce classes are available
+    if (!class_exists('\Drupal\commerce_payment\Entity\PaymentInterface')) {
+      return;
+    }
+
     // Check if Commerce integration is enabled
     if (!$this->bentoService->isCommerceIntegrationEnabled()) {
       return;

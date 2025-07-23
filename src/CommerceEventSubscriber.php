@@ -55,30 +55,29 @@ class CommerceEventSubscriber implements EventSubscriberInterface {
   public static function getSubscribedEvents(): array {
     $events = [];
 
-    // Cart events - only if commerce_cart module is available
-    if (\Drupal::moduleHandler()->moduleExists('commerce_cart') && 
-        class_exists('\Drupal\commerce_cart\Event\CartEvents')) {
+    // Only subscribe to events if the required classes exist
+    // We can't use \Drupal::moduleHandler() here as the container isn't ready yet
+    
+    // Cart events - only if commerce_cart classes are available
+    if (class_exists('\Drupal\commerce_cart\Event\CartEvents')) {
       $events[CartEvents::CART_ENTITY_ADD] = 'onCartItemAdd';
       $events[CartEvents::CART_ORDER_ITEM_UPDATE] = 'onCartItemUpdate';
       $events[CartEvents::CART_ORDER_ITEM_REMOVE] = 'onCartItemRemove';
     }
 
-    // Order events - only if commerce_order module is available
-    if (\Drupal::moduleHandler()->moduleExists('commerce_order') && 
-        class_exists('\Drupal\commerce_order\Event\OrderEvents')) {
+    // Order events - only if commerce_order classes are available
+    if (class_exists('\Drupal\commerce_order\Event\OrderEvents')) {
       $events[OrderEvents::ORDER_PLACE] = 'onOrderPlace';
       $events[OrderEvents::ORDER_UPDATE] = 'onOrderUpdate';
     }
 
-    // Payment events - only if commerce_payment module is available
-    if (\Drupal::moduleHandler()->moduleExists('commerce_payment') && 
-        class_exists('\Drupal\commerce_payment\Event\PaymentEvents')) {
+    // Payment events - only if commerce_payment classes are available
+    if (class_exists('\Drupal\commerce_payment\Event\PaymentEvents')) {
       $events[PaymentEvents::PAYMENT_INSERT] = 'onPaymentInsert';
     }
 
     // State machine events for order status changes
-    if (\Drupal::moduleHandler()->moduleExists('state_machine') && 
-        class_exists('\Drupal\state_machine\Event\WorkflowTransitionEvent')) {
+    if (class_exists('\Drupal\state_machine\Event\WorkflowTransitionEvent')) {
       $events['commerce_order.place.post_transition'] = 'onOrderStateChange';
       $events['commerce_order.fulfill.post_transition'] = 'onOrderStateChange';
       $events['commerce_order.cancel.post_transition'] = 'onOrderStateChange';
@@ -94,6 +93,11 @@ class CommerceEventSubscriber implements EventSubscriberInterface {
    *   The cart entity add event.
    */
   public function onCartItemAdd(CartEntityAddEvent $event): void {
+    // Double-check that Commerce is actually available
+    if (!\Drupal::moduleHandler()->moduleExists('commerce_cart')) {
+      return;
+    }
+
     try {
       $cart = $event->getCart();
       
@@ -118,6 +122,11 @@ class CommerceEventSubscriber implements EventSubscriberInterface {
    *   The cart order item update event.
    */
   public function onCartItemUpdate(CartOrderItemUpdateEvent $event): void {
+    // Double-check that Commerce is actually available
+    if (!\Drupal::moduleHandler()->moduleExists('commerce_cart')) {
+      return;
+    }
+
     try {
       $this->processor->processCartEvent($event->getCart(), '$cart_updated');
     }
@@ -135,6 +144,11 @@ class CommerceEventSubscriber implements EventSubscriberInterface {
    *   The cart order item remove event.
    */
   public function onCartItemRemove(CartOrderItemRemoveEvent $event): void {
+    // Double-check that Commerce is actually available
+    if (!\Drupal::moduleHandler()->moduleExists('commerce_cart')) {
+      return;
+    }
+
     try {
       $this->processor->processCartEvent($event->getCart(), '$cart_updated');
     }
@@ -152,6 +166,11 @@ class CommerceEventSubscriber implements EventSubscriberInterface {
    *   The order event.
    */
   public function onOrderPlace(OrderEvent $event): void {
+    // Double-check that Commerce is actually available
+    if (!\Drupal::moduleHandler()->moduleExists('commerce_order')) {
+      return;
+    }
+
     try {
       $this->processor->processOrderEvent($event->getOrder(), '$purchase');
     }
@@ -169,6 +188,11 @@ class CommerceEventSubscriber implements EventSubscriberInterface {
    *   The order event.
    */
   public function onOrderUpdate(OrderEvent $event): void {
+    // Double-check that Commerce is actually available
+    if (!\Drupal::moduleHandler()->moduleExists('commerce_order')) {
+      return;
+    }
+
     try {
       $order = $event->getOrder();
       if ($this->shouldTrackOrderUpdate($order)) {
@@ -189,6 +213,11 @@ class CommerceEventSubscriber implements EventSubscriberInterface {
    *   The payment event.
    */
   public function onPaymentInsert(PaymentEvent $event): void {
+    // Double-check that Commerce is actually available
+    if (!\Drupal::moduleHandler()->moduleExists('commerce_payment')) {
+      return;
+    }
+
     try {
       $payment = $event->getPayment();
       if ($payment->getState()->getId() === 'completed') {
@@ -209,6 +238,11 @@ class CommerceEventSubscriber implements EventSubscriberInterface {
    *   The workflow transition event.
    */
   public function onOrderStateChange(WorkflowTransitionEvent $event): void {
+    // Double-check that Commerce is actually available
+    if (!\Drupal::moduleHandler()->moduleExists('commerce_order')) {
+      return;
+    }
+
     try {
       $order = $event->getEntity();
       $transition = $event->getTransition();
