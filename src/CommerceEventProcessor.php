@@ -45,6 +45,13 @@ class CommerceEventProcessor {
   protected CommerceEmailExtractor $emailExtractor;
 
   /**
+   * The data enricher service.
+   *
+   * @var \Drupal\bento_sdk\CommerceDataEnricher
+   */
+  protected CommerceDataEnricher $dataEnricher;
+
+  /**
    * Constructs a new CommerceEventProcessor.
    *
    * @param \Drupal\bento_sdk\BentoService $bento_service
@@ -55,12 +62,15 @@ class CommerceEventProcessor {
    *   The logger service.
    * @param \Drupal\bento_sdk\CommerceEmailExtractor $email_extractor
    *   The email extractor service.
+   * @param \Drupal\bento_sdk\CommerceDataEnricher $data_enricher
+   *   The data enricher service.
    */
-  public function __construct(BentoService $bento_service, ConfigFactoryInterface $config_factory, LoggerInterface $logger, CommerceEmailExtractor $email_extractor) {
+  public function __construct(BentoService $bento_service, ConfigFactoryInterface $config_factory, LoggerInterface $logger, CommerceEmailExtractor $email_extractor, CommerceDataEnricher $data_enricher) {
     $this->bentoService = $bento_service;
     $this->configFactory = $config_factory;
     $this->logger = $logger;
     $this->emailExtractor = $email_extractor;
+    $this->dataEnricher = $data_enricher;
   }
 
   /**
@@ -99,7 +109,7 @@ class CommerceEventProcessor {
       return;
     }
 
-    // Build event data
+    // Build event data with enriched information
     $event_data = [
       'type' => $event_type,
       'email' => $email,
@@ -108,12 +118,24 @@ class CommerceEventProcessor {
         'cart_total' => $this->formatPrice($cart->getTotalPrice()),
         'currency' => $cart->getTotalPrice()->getCurrencyCode(),
         'item_count' => count($cart->getItems()),
-        'items' => $this->formatCartItems($cart->getItems()),
+        'items' => $this->dataEnricher->enrichOrderItems($cart->getItems()),
         'created' => $cart->getCreatedTime(),
         'changed' => $cart->getChangedTime(),
         'cart_url' => $cart->toUrl('canonical', ['absolute' => TRUE])->toString(),
       ],
     ];
+
+    // Add enriched customer context
+    $customer_context = $this->dataEnricher->enrichCustomerContext($cart);
+    if (!empty($customer_context)) {
+      $event_data['details']['customer'] = $customer_context;
+    }
+
+    // Add enriched order context
+    $order_context = $this->dataEnricher->enrichOrderContext($cart);
+    if (!empty($order_context)) {
+      $event_data['details'] = array_merge($event_data['details'], $order_context);
+    }
 
     // Add customer fields if available
     $customer_name = $this->emailExtractor->extractCustomerName($cart);
@@ -139,44 +161,7 @@ class CommerceEventProcessor {
 
 
 
-  /**
-   * Formats cart items for Bento event data.
-   *
-   * @param array $items
-   *   Array of cart items.
-   *
-   * @return array
-   *   Formatted items array.
-   */
-  private function formatCartItems(array $items): array {
-    $formatted_items = [];
-    
-    foreach ($items as $item) {
-      $product = $item->getPurchasedEntity();
-      
-      if (!$product) {
-        continue;
-      }
 
-      $formatted_item = [
-        'product_id' => $product->id(),
-        'product_sku' => $product->getSku(),
-        'product_title' => $product->getTitle(),
-        'quantity' => (int) $item->getQuantity(),
-        'unit_price' => $this->formatPrice($item->getUnitPrice()),
-        'total_price' => $this->formatPrice($item->getTotalPrice()),
-      ];
-
-      // Add product URL if available
-      if ($product->hasLinkTemplate('canonical')) {
-        $formatted_item['product_url'] = $product->toUrl('canonical', ['absolute' => TRUE])->toString();
-      }
-
-      $formatted_items[] = $formatted_item;
-    }
-    
-    return $formatted_items;
-  }
 
   /**
    * Formats a price object for Bento event data.
@@ -230,7 +215,7 @@ class CommerceEventProcessor {
       return;
     }
 
-    // Build base event data
+    // Build event data with enriched information
     $event_data = [
       'type' => $event_type,
       'email' => $email,
@@ -241,7 +226,7 @@ class CommerceEventProcessor {
         'currency' => $order->getTotalPrice()->getCurrencyCode(),
         'order_state' => $order->getState()->getId(),
         'item_count' => count($order->getItems()),
-        'items' => $this->formatOrderItems($order->getItems()),
+        'items' => $this->dataEnricher->enrichOrderItems($order->getItems()),
         'placed' => $order->getPlacedTime(),
         'completed' => $order->getCompletedTime(),
       ],
@@ -256,6 +241,18 @@ class CommerceEventProcessor {
         'currency' => $order->getTotalPrice()->getCurrencyCode(),
         'amount' => (int) ($order->getTotalPrice()->getNumber() * 100), // Convert to cents
       ];
+    }
+
+    // Add enriched customer context
+    $customer_context = $this->dataEnricher->enrichCustomerContext($order);
+    if (!empty($customer_context)) {
+      $event_data['details']['customer'] = $customer_context;
+    }
+
+    // Add enriched order context
+    $order_context = $this->dataEnricher->enrichOrderContext($order);
+    if (!empty($order_context)) {
+      $event_data['details'] = array_merge($event_data['details'], $order_context);
     }
 
     // Add customer information
@@ -361,44 +358,7 @@ class CommerceEventProcessor {
 
 
 
-  /**
-   * Formats order items for Bento event data.
-   *
-   * @param array $items
-   *   Array of order items.
-   *
-   * @return array
-   *   Formatted items array.
-   */
-  private function formatOrderItems(array $items): array {
-    $formatted_items = [];
-    
-    foreach ($items as $item) {
-      $product = $item->getPurchasedEntity();
-      
-      if (!$product) {
-        continue;
-      }
 
-      $formatted_item = [
-        'product_id' => $product->id(),
-        'product_sku' => $product->getSku(),
-        'product_name' => $product->getTitle(),
-        'quantity' => (int) $item->getQuantity(),
-        'unit_price' => $this->formatPrice($item->getUnitPrice()),
-        'total_price' => $this->formatPrice($item->getTotalPrice()),
-      ];
-
-      // Add product URL if available
-      if ($product->hasLinkTemplate('canonical')) {
-        $formatted_item['product_url'] = $product->toUrl('canonical', ['absolute' => TRUE])->toString();
-      }
-
-      $formatted_items[] = $formatted_item;
-    }
-    
-    return $formatted_items;
-  }
 
   /**
    * Adds billing and shipping address information to event data.
