@@ -31,8 +31,19 @@ retry:
 # Commerce integration settings
 commerce_integration:
   enabled: false
-  track_cart_events: true
-  track_order_events: true
-  track_payment_events: true
-  enable_cart_abandonment: false
-  cart_abandonment_threshold: 24
+  event_types:
+    cart_created: true
+    cart_updated: true
+    purchase: true
+    order_paid: true
+    order_fulfilled: true
+    order_cancelled: true
+    cart_abandoned: true
+  cart_abandonment:
+    threshold_hours: 24
+    check_interval: 60
+  data_enrichment:
+    include_product_details: true
+    include_customer_context: true
+    include_order_context: true
+    include_product_images: false
