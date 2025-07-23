@@ -603,6 +603,149 @@ class BentoSettingsForm extends ConfigFormBase {
       '#disabled' => !$can_edit_performance,
     ];
 
+    // Webform Integration Settings
+    $form['webform_settings'] = [
+      '#type' => 'fieldset',
+      '#title' => $this->t('Webform Integration'),
+      '#description' => $this->t('Configure how webform submissions are processed and sent to Bento. Event types are automatically generated from webform machine names (e.g., "contact_form" becomes "$contact_form").'),
+    ];
+
+    if (!$can_edit_performance) {
+      $form['webform_settings']['#description'] .= ' ' . $this->t('<strong>Note:</strong> You do not have permission to modify webform settings.');
+    }
+
+    $form['webform_settings']['enable_webform_integration'] = [
+      '#type' => 'checkbox',
+      '#title' => $this->t('Enable Webform Integration'),
+      '#description' => $this->t('Automatically send Bento events when webforms are submitted. Each webform will generate events with unique event types based on their machine names. Requires the Webform module to be installed.'),
+      '#default_value' => $config->get('enable_webform_integration') ?? TRUE,
+      '#disabled' => !$can_edit_performance || !\Drupal::moduleHandler()->moduleExists('webform'),
+    ];
+
+    if (!\Drupal::moduleHandler()->moduleExists('webform')) {
+      $form['webform_settings']['enable_webform_integration']['#description'] .= ' ' . $this->t('<strong>Note:</strong> Webform module is not installed.');
+    }
+
+    // Add informational markup about automatic event type generation
+    $form['webform_settings']['event_type_info'] = [
+      '#type' => 'markup',
+      '#markup' => '<div class="messages messages--info">' . 
+        $this->t('<strong>Automatic Event Types:</strong> Event types are automatically generated from webform machine names. For example:<br>• "contact_form" → "$contact_form"<br>• "newsletter_signup" → "$newsletter_signup"<br>• "product-inquiry" → "$product_inquiry"<br>This ensures each webform has a unique event type in Bento.') . 
+        '</div>',
+      '#states' => [
+        'visible' => [
+          ':input[name="enable_webform_integration"]' => ['checked' => TRUE],
+        ],
+      ],
+    ];
+
+    // Add visual separator for test section
+    $form['webform_settings']['test_separator'] = [
+      '#type' => 'markup',
+      '#markup' => '<hr class="test-webform-separator">',
+      '#weight' => 10,
+      '#states' => [
+        'visible' => [
+          ':input[name="enable_webform_integration"]' => ['checked' => TRUE],
+        ],
+      ],
+    ];
+
+    // Add CSS for test webform section styling
+    $form['webform_settings']['#attached']['html_head'][] = [
+      [
+        '#tag' => 'style',
+        '#value' => '
+          .test-webform-separator {
+            margin: 20px 0;
+            border: 0;
+            border-top: 1px solid #ccc;
+          }
+          .test-webform-section {
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 4px;
+            margin-top: 15px;
+          }
+          #test-webform-messages {
+            margin-top: 10px;
+          }
+          #test-webform-messages .messages {
+            margin: 10px 0;
+          }
+          .test-webform-state {
+            margin-top: 10px;
+            padding: 8px 12px;
+            border-radius: 4px;
+            font-size: 0.9em;
+          }
+          .test-webform-state:empty {
+            display: none;
+          }
+          #test-webform-button:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+          }
+          #test-webform-button:not(:disabled) {
+            background-color: #0071b8;
+            border-color: #0071b8;
+          }
+        ',
+      ],
+      'bento-sdk-test-webform-styles'
+    ];
+
+    // Add test webform event section
+    $form['webform_settings']['test_webform_section'] = [
+      '#type' => 'fieldset',
+      '#title' => $this->t('Test Webform Event'),
+      '#description' => $this->t('Test the webform integration by sending a sample webform submission event to Bento.'),
+      '#weight' => 11,
+      '#states' => [
+        'visible' => [
+          ':input[name="enable_webform_integration"]' => ['checked' => TRUE],
+        ],
+      ],
+    ];
+
+    // Add button state display
+    $form['webform_settings']['test_webform_section']['button_state'] = [
+      '#type' => 'markup',
+      '#markup' => '<div id="test-webform-button-state" class="test-webform-state">' . 
+        ($this->canSendTestWebformEvent() ? $this->t('Ready to send test webform event.') : $this->t('Please configure API credentials and enable webform integration first.')) . 
+        '</div>',
+      '#weight' => 0,
+    ];
+
+    // Add test webform event button
+    $form['webform_settings']['test_webform_section']['send_test_webform_event'] = [
+      '#type' => 'button',
+      '#value' => $this->t('Send Test Webform Event'),
+      '#disabled' => !$this->canSendTestWebformEvent(),
+      '#attributes' => [
+        'class' => ['button--primary'],
+        'id' => 'test-webform-button',
+      ],
+      '#weight' => 1,
+      '#ajax' => [
+        'callback' => '::sendTestWebformEventCallback',
+        'wrapper' => 'test-webform-messages',
+        'method' => 'replace',
+        'effect' => 'fade',
+        'progress' => [
+          'type' => 'throbber',
+          'message' => $this->t('Sending test webform event...'),
+        ],
+      ],
+    ];
+
+    // Add messages container
+    $form['webform_settings']['test_webform_section']['test_messages'] = [
+      '#type' => 'markup',
+      '#markup' => '<div id="test-webform-messages"></div>',
+      '#weight' => 2,
+    ];
+
     // Attach AJAX library to ensure AJAX functionality works
     $form['#attached']['library'][] = 'core/drupal.ajax';
     
@@ -692,6 +835,8 @@ class BentoSettingsForm extends ConfigFormBase {
         $form_state->setErrorByName('default_author_email', $this->t('Selected author is not available. Please refresh the authors list.'));
       }
     }
+
+
   }
 
   /**
@@ -780,6 +925,7 @@ class BentoSettingsForm extends ConfigFormBase {
         'request_timeout',
         'connection_timeout',
         'enable_request_id_tracking',
+        'enable_webform_integration',
       ];
 
       foreach ($performance_fields as $field) {
@@ -848,45 +994,76 @@ class BentoSettingsForm extends ConfigFormBase {
     }
   }
 
-  /**
-   * Checks if test email can be sent.
-   *
-   * @return bool
-   *   TRUE if test email can be sent, FALSE otherwise.
-   */
-  private function canSendTestEmail(): bool {
-    // Check if user has permission
-    if (!$this->hasMailEditAccess()) {
-      return FALSE;
-    }
+   /**
+    * Checks if test email can be sent.
+    *
+    * @return bool
+    *   TRUE if test email can be sent, FALSE otherwise.
+    */
+   private function canSendTestEmail(): bool {
+     // Check if user has permission
+     if (!$this->hasMailEditAccess()) {
+       return FALSE;
+     }
 
-    // Check if Bento is configured
-    if (!$this->isConfigured()) {
-      return FALSE;
-    }
+     // Check if Bento is configured
+     if (!$this->isConfigured()) {
+       return FALSE;
+     }
 
-    // Check if an author is selected
-    $config = $this->config('bento_sdk.settings');
-    $selected_author = $config->get('default_author_email');
-    
-    if (empty($selected_author)) {
-      return FALSE;
-    }
+     // Check if an author is selected
+     $config = $this->config('bento_sdk.settings');
+     $selected_author = $config->get('default_author_email');
+     
+     if (empty($selected_author)) {
+       return FALSE;
+     }
 
-    // Validate the selected author email
-    if (!filter_var($selected_author, FILTER_VALIDATE_EMAIL)) {
-      return FALSE;
-    }
+     // Validate the selected author email
+     if (!filter_var($selected_author, FILTER_VALIDATE_EMAIL)) {
+       return FALSE;
+     }
 
-    // Check rate limiting
-    $rate_limit = $this->checkTestEmailRateLimit();
-    if (!$rate_limit['allowed']) {
-      return FALSE;
-    }
+     // Check rate limiting
+     $rate_limit = $this->checkTestEmailRateLimit();
+     if (!$rate_limit['allowed']) {
+       return FALSE;
+     }
 
-    return TRUE;
-  }
+     return TRUE;
+   }
 
+   /**
+    * Checks if test webform event can be sent.
+    *
+    * @return bool
+    *   TRUE if test webform event can be sent, FALSE otherwise.
+    */
+   private function canSendTestWebformEvent(): bool {
+     // Check if user has permission
+     if (!$this->hasPerformanceEditAccess()) {
+       return FALSE;
+     }
+
+     // Check if Bento is configured
+     if (!$this->isConfigured()) {
+       return FALSE;
+     }
+
+     // Check if webform integration is enabled
+     $config = $this->config('bento_sdk.settings');
+     if (!$config->get('enable_webform_integration')) {
+       return FALSE;
+     }
+
+     // Check rate limiting (reuse test email rate limiting)
+     $rate_limit = $this->checkTestEmailRateLimit();
+     if (!$rate_limit['allowed']) {
+       return FALSE;
+     }
+
+     return TRUE;
+   }
   /**
    * Checks if test email rate limit is exceeded.
    *
@@ -1112,6 +1289,104 @@ class BentoSettingsForm extends ConfigFormBase {
 
       // Replace the dropdown
       $response->addCommand(new ReplaceCommand('#authors-dropdown-wrapper', \Drupal::service('renderer')->render($disabled_element)));
+    }
+
+    return $response;
+  }
+
+  /**
+   * AJAX callback for send test webform event button.
+   *
+   * @param array $form
+   *   The form array.
+   * @param \Drupal\Core\Form\FormStateInterface $form_state
+   *   The form state.
+   *
+   * @return \Drupal\Core\Ajax\AjaxResponse
+   *   The AJAX response.
+   */
+  public function sendTestWebformEventCallback(array &$form, FormStateInterface $form_state) {
+    $response = new AjaxResponse();
+
+    try {
+      // Validate permissions
+      if (!$this->hasPerformanceEditAccess()) {
+        $error_message = $this->t('You do not have permission to send test webform events.');
+        $response->addCommand(new MessageCommand($error_message, 'error'));
+        return $response;
+      }
+
+      // Validate configuration
+      if (!$this->isConfigured()) {
+        $error_message = $this->t('Please configure API credentials before sending test webform events.');
+        $response->addCommand(new MessageCommand($error_message, 'error'));
+        return $response;
+      }
+
+      // Check if webform integration is enabled
+      $config = $this->config('bento_sdk.settings');
+      if (!$config->get('enable_webform_integration')) {
+        $error_message = $this->t('Webform integration is disabled. Please enable it first.');
+        $response->addCommand(new MessageCommand($error_message, 'error'));
+        return $response;
+      }
+
+      // Check rate limiting
+      $rate_limit = $this->checkTestEmailRateLimit();
+      if (!$rate_limit['allowed']) {
+        $next_allowed = date('H:i:s', $rate_limit['next_allowed']);
+        $error_message = $this->t('Rate limit exceeded. You can send another test event at @time.', [
+          '@time' => $next_allowed,
+        ]);
+        $response->addCommand(new MessageCommand($error_message, 'warning'));
+        return $response;
+      }
+
+      // Get the current user's email for the test event
+      $user_email = $this->currentUser->getEmail();
+      if (empty($user_email)) {
+        $user_email = 'test@example.com';
+      }
+
+      // Send the test webform event using the service method
+      $bento_service = \Drupal::service('bento.sdk');
+      $success = $bento_service->sendTestWebformEvent($user_email);
+
+      if ($success) {
+        // Update rate limiting counter
+        $this->incrementTestEmailCounter();
+
+        $success_message = $this->t('Test webform event sent successfully! Check your Bento dashboard to verify the event was received.');
+        $response->addCommand(new MessageCommand($success_message, 'status'));
+
+        // Log the successful test
+        $this->logger->info('Test webform event sent successfully by user @username (ID: @uid)', [
+          '@username' => $this->currentUser->getAccountName(),
+          '@uid' => $this->currentUser->id(),
+        ]);
+      }
+      else {
+        $error_message = $this->t('Failed to send test webform event. Please check the logs for more details.');
+        $response->addCommand(new MessageCommand($error_message, 'error'));
+
+        // Log the failure
+        $this->logger->warning('Test webform event failed for user @username (ID: @uid)', [
+          '@username' => $this->currentUser->getAccountName(),
+          '@uid' => $this->currentUser->id(),
+        ]);
+      }
+
+    }
+    catch (\Exception $e) {
+      $error_message = $this->t('An error occurred while sending the test webform event: @message', [
+        '@message' => $e->getMessage(),
+      ]);
+      $response->addCommand(new MessageCommand($error_message, 'error'));
+
+      // Log the exception
+      $this->logger->error('Exception while sending test webform event: @message', [
+        '@message' => $e->getMessage(),
+      ]);
     }
 
     return $response;
@@ -1606,7 +1881,35 @@ class BentoSettingsForm extends ConfigFormBase {
          break;
      }
 
-     return $base_data;
-   }
+      return $base_data;
+    }
+
+
+
+    /**
+     * Increments the test email counter for rate limiting.
+     *
+     * This method is shared between test email and test webform event functionality
+     * to maintain a unified rate limit for admin testing features.
+     */
+    private function incrementTestEmailCounter(): void {
+      $user_id = $this->currentUser->id();
+      $cache_key = 'bento_test_email_rate_limit:' . $user_id;
+      
+      // Get current usage
+      $cached = \Drupal::cache()->get($cache_key);
+      $current_usage = $cached ? $cached->data : ['count' => 0, 'reset_time' => time() + 3600];
+      
+      // Check if we need to reset the counter
+      if (time() > $current_usage['reset_time']) {
+        $current_usage = ['count' => 0, 'reset_time' => time() + 3600];
+      }
+      
+      // Increment counter
+      $current_usage['count']++;
+      
+      // Save updated usage
+      \Drupal::cache()->set($cache_key, $current_usage, $current_usage['reset_time']);
+    }
 
 }

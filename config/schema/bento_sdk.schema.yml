@@ -66,6 +66,9 @@ bento_sdk.settings:
     enable_request_id_tracking:
       type: boolean
       label: 'Enable request ID tracking for audit trails'
+    enable_webform_integration:
+      type: boolean
+      label: 'Enable webform integration'
     retry:
       type: mapping
       label: 'Queue retry configuration'

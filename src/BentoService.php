@@ -1404,4 +1404,266 @@ class BentoService {
     }
   }
 
+  /**
+   * Process a webform submission and send to Bento.
+   *
+   * Extracts form data from the webform submission and creates a Bento event.
+   * This method handles email validation, field mapping, and error handling.
+   * Only processes submissions if webform integration is enabled.
+   *
+   * @param \Drupal\webform\WebformSubmissionInterface $submission
+   *   The webform submission object.
+   *
+   * @return bool
+   *   TRUE if the event was processed successfully, FALSE otherwise.
+   */
+  public function processWebformSubmission($submission): bool {
+    // Check if webform integration is enabled
+    $config = $this->configFactory->get('bento_sdk.settings');
+    if (!$config->get('enable_webform_integration')) {
+      $this->logger->info('Webform submission skipped - webform integration is disabled');
+      return FALSE;
+    }
+
+    try {
+      // Extract form data from submission
+      $form_data = $submission->getData();
+      $webform_id = $submission->getWebform()->id();
+      
+      // Map webform data to Bento event format
+      $event_data = $this->mapWebformDataToEvent($form_data, $webform_id);
+      
+      if (!$event_data) {
+        $this->logger->warning('Webform submission skipped - no valid email found in webform @webform_id', [
+          '@webform_id' => $webform_id,
+        ]);
+        return FALSE;
+      }
+      
+      // Send event to Bento
+      $success = $this->sendEvent($event_data);
+      
+      if ($success) {
+        $this->logger->info('Webform submission processed successfully for webform @webform_id', [
+          '@webform_id' => $webform_id,
+        ]);
+      }
+      
+      return $success;
+    }
+    catch (\Exception $e) {
+      $this->logger->error('Failed to process webform submission: @message', [
+        '@message' => $this->sanitizeErrorMessage($e->getMessage()),
+      ]);
+      return FALSE;
+    }
+  }
+
+  /**
+   * Map webform data to Bento event format.
+   *
+   * Extracts email, first_name, last_name and other form data to create
+   * a properly formatted Bento event. Email is required for processing.
+   * Uses the webform ID as the event type automatically.
+   *
+   * @param array $form_data
+   *   The form data from the webform submission.
+   * @param string $webform_id
+   *   The webform machine name, used to generate the event type.
+   *
+   * @return array|null
+   *   Formatted event data or NULL if no valid email found.
+   */
+  private function mapWebformDataToEvent(array $form_data, string $webform_id): ?array {
+    // Extract email (required)
+    $email = $this->extractEmail($form_data);
+    if (!$email) {
+      return NULL;
+    }
+    
+    // Generate event type from webform ID
+    $event_type = $this->formatWebformEventType($webform_id);
+    
+    // Start building the event
+    $event = [
+      'type' => $event_type,
+      'email' => $email,
+    ];
+    
+    // Extract known fields for Bento subscriber fields
+    $fields = [];
+    if (isset($form_data['first_name']) && !empty($form_data['first_name'])) {
+      $fields['first_name'] = $form_data['first_name'];
+    }
+    if (isset($form_data['last_name']) && !empty($form_data['last_name'])) {
+      $fields['last_name'] = $form_data['last_name'];
+    }
+    
+    if (!empty($fields)) {
+      $event['fields'] = $fields;
+    }
+    
+    // Map remaining data to event details
+    $details = [
+      'webform_id' => $webform_id,
+      'original_webform_id' => $webform_id, // Keep original for reference
+    ];
+    
+    $form_data_details = [];
+    foreach ($form_data as $key => $value) {
+      // Skip email and name fields as they're handled above
+      if (!in_array($key, ['email', 'mail', 'email_address', 'user_email', 'first_name', 'last_name'])) {
+        $form_data_details[$key] = $value;
+      }
+    }
+    
+    if (!empty($form_data_details)) {
+      $details['form_data'] = $form_data_details;
+    }
+    
+    $event['details'] = $details;
+    
+    return $event;
+  }
+
+  /**
+   * Extract email from form data, checking common field names.
+   *
+   * Searches for email in common field names and validates the format
+   * before returning. This ensures we have a valid email for Bento events.
+   *
+   * @param array $form_data
+   *   The form data to search for email fields.
+   *
+   * @return string|null
+   *   Valid email address or NULL if none found.
+   */
+  private function extractEmail(array $form_data): ?string {
+    // Common email field names in webforms
+    $email_fields = ['email', 'mail', 'email_address', 'user_email'];
+    
+    foreach ($email_fields as $field) {
+      if (isset($form_data[$field]) && !empty($form_data[$field])) {
+        $email = trim($form_data[$field]);
+        
+        // Validate email format
+        if (filter_var($email, FILTER_VALIDATE_EMAIL)) {
+          return $email;
+        }
+      }
+    }
+    
+    return NULL;
+  }
+
+  /**
+   * Convert Webform ID to a Bento-compatible event type.
+   *
+   * Sanitizes the webform machine name and formats it as a Bento event type
+   * with the required $ prefix. Ensures the event type follows Bento's
+   * naming conventions.
+   *
+   * @param string $webform_id
+   *   The webform machine name.
+   *
+   * @return string
+   *   Formatted event type (e.g., 'contact_form' becomes '$contact_form').
+   */
+  private function formatWebformEventType(string $webform_id): string {
+    // Sanitize the webform ID to ensure it's safe for Bento
+    // Convert to lowercase and replace any non-alphanumeric characters with underscores
+    $sanitized = preg_replace('/[^a-z0-9_-]/', '_', strtolower($webform_id));
+    
+    // Remove multiple consecutive underscores
+    $sanitized = preg_replace('/_+/', '_', $sanitized);
+    
+    // Remove leading/trailing underscores
+    $sanitized = trim($sanitized, '_');
+    
+    // Ensure we have a valid event name
+    if (empty($sanitized)) {
+      $sanitized = 'webform_submission';
+    }
+    
+    // Add the $ prefix for Bento system events
+    return '$' . $sanitized;
+  }
+
+  /**
+   * Send a test webform event with sample data.
+   *
+   * Creates a mock webform submission event for testing the integration.
+   * This method bypasses the actual webform submission process and directly
+   * creates a properly formatted event using the webform ID as event type.
+   *
+   * @param string $email
+   *   The email address to use for the test event.
+   * @param string $test_webform_id
+   *   Optional webform ID to use for testing. Defaults to 'admin_test_form'.
+   *
+   * @return bool
+   *   TRUE if the test event was sent successfully, FALSE otherwise.
+   */
+  public function sendTestWebformEvent(string $email, string $test_webform_id = 'admin_test_form'): bool {
+    if (!$this->isConfigured()) {
+      $this->logger->error('Cannot send test webform event - Bento SDK is not properly configured.');
+      return FALSE;
+    }
+
+    // Check if webform integration is enabled
+    $config = $this->configFactory->get('bento_sdk.settings');
+    if (!$config->get('enable_webform_integration')) {
+      $this->logger->warning('Cannot send test webform event - webform integration is disabled.');
+      return FALSE;
+    }
+
+    try {
+      // Create sample webform data
+      $sample_form_data = [
+        'email' => $email,
+        'first_name' => 'Test',
+        'last_name' => 'User',
+        'subject' => 'Test Webform Submission',
+        'message' => 'This is a test webform submission sent from the Drupal admin interface to verify the Bento integration is working correctly.',
+        'phone' => '555-123-4567',
+        'company' => 'Test Company',
+        'how_did_you_hear' => 'Admin Test',
+        'newsletter_signup' => TRUE,
+      ];
+
+      // Use the same mapping logic as real webform submissions
+      // The webform ID will be automatically converted to the event type
+      $event_data = $this->mapWebformDataToEvent($sample_form_data, $test_webform_id);
+
+      if (!$event_data) {
+        $this->logger->error('Failed to create test webform event data - no valid email found.');
+        return FALSE;
+      }
+
+      // Add test-specific details
+      $event_data['details']['test_event'] = TRUE;
+      $event_data['details']['sent_from'] = 'drupal_admin_interface';
+      $event_data['details']['timestamp'] = time();
+
+      // Send the event
+      $success = $this->sendEvent($event_data);
+
+      if ($success) {
+        $this->logger->info('Test webform event sent successfully for @email using event type @type (from webform @webform_id)', [
+          '@email' => $this->sanitizeEmailForLogging($email),
+          '@type' => $event_data['type'],
+          '@webform_id' => $test_webform_id,
+        ]);
+      }
+
+      return $success;
+    }
+    catch (\Exception $e) {
+      $this->logger->error('Failed to send test webform event: @message', [
+        '@message' => $this->sanitizeErrorMessage($e->getMessage()),
+      ]);
+      return FALSE;
+    }
+  }
+
 }
