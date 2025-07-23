@@ -127,6 +127,9 @@ bento_sdk.settings:
             check_interval:
               type: integer
               label: 'Check Interval (minutes)'
+            batch_size:
+              type: integer
+              label: 'Batch Size for Processing'
         data_enrichment:
           type: mapping
           label: 'Data Enrichment Settings'

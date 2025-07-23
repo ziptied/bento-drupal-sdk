@@ -23,6 +23,16 @@ use Psr\Log\LoggerInterface;
 class CommerceEventSubscriber implements EventSubscriberInterface {
 
   /**
+   * Cart creation window in seconds for detecting new carts.
+   */
+  private const CART_CREATION_WINDOW_SECONDS = 10;
+
+  /**
+   * Minimum price difference threshold for tracking order updates.
+   */
+  private const MIN_PRICE_DIFFERENCE_THRESHOLD = 0.01;
+
+  /**
    * The Commerce event processor service.
    *
    * @var \Drupal\bento_sdk\CommerceEventProcessor
@@ -289,18 +299,19 @@ class CommerceEventSubscriber implements EventSubscriberInterface {
       return FALSE;
     }
 
-    // Check if cart was created within the last few seconds
+    // Check if cart was created within the cart creation window
     $created_time = $cart->getCreatedTime();
     $current_time = time();
     
-    // Consider it a new cart if created within the last 10 seconds
-    return ($current_time - $created_time) <= 10;
+    // Consider it a new cart if created within the cart creation window
+    return ($current_time - $created_time) <= self::CART_CREATION_WINDOW_SECONDS;
   }
 
   /**
    * Determines if an order update should be tracked.
    *
-   * Only tracks significant order updates, not every save operation.
+   * Uses efficient change detection by comparing specific fields rather than
+   * entire order states to improve performance.
    *
    * @param \Drupal\commerce_order\Entity\OrderInterface $order
    *   The order entity.
@@ -322,7 +333,19 @@ class CommerceEventSubscriber implements EventSubscriberInterface {
     // Track if total changed significantly
     $current_total = $order->getTotalPrice()->getNumber();
     $original_total = $original->getTotalPrice()->getNumber();
-    if (abs($current_total - $original_total) > 0.01) {
+    if (abs($current_total - $original_total) > self::MIN_PRICE_DIFFERENCE_THRESHOLD) {
+      return TRUE;
+    }
+
+    // Track if item count changed
+    $current_item_count = count($order->getItems());
+    $original_item_count = count($original->getItems());
+    if ($current_item_count !== $original_item_count) {
+      return TRUE;
+    }
+
+    // Track if order status changed (for non-state machine orders)
+    if ($order->getStatus() !== $original->getStatus()) {
       return TRUE;
     }
 

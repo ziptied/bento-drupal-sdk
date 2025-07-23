@@ -21,6 +21,41 @@ class CartAbandonmentService {
   use BentoSanitizationTrait;
 
   /**
+   * Minimum cart abandonment threshold in hours.
+   */
+  private const MIN_THRESHOLD_HOURS = 1;
+
+  /**
+   * Maximum cart abandonment threshold in hours (30 days).
+   */
+  private const MAX_THRESHOLD_HOURS = 720;
+
+  /**
+   * Minimum check interval in minutes.
+   */
+  private const MIN_CHECK_INTERVAL_MINUTES = 15;
+
+  /**
+   * Maximum check interval in minutes (24 hours).
+   */
+  private const MAX_CHECK_INTERVAL_MINUTES = 1440;
+
+  /**
+   * Maximum number of processed carts to keep in state storage.
+   */
+  private const MAX_PROCESSED_CARTS_LIMIT = 1000;
+
+  /**
+   * Default batch size for processing abandoned carts.
+   */
+  private const DEFAULT_BATCH_SIZE = 50;
+
+  /**
+   * Cart creation window in seconds for detecting new carts.
+   */
+  private const CART_CREATION_WINDOW_SECONDS = 10;
+
+  /**
    * The configuration factory.
    *
    * @var \Drupal\Core\Config\ConfigFactoryInterface
@@ -110,45 +145,140 @@ class CartAbandonmentService {
    *
    * Main entry point for cart abandonment processing. Checks if Commerce
    * integration and cart abandonment tracking are enabled, then processes
-   * all carts that meet the abandonment criteria.
+   * all carts that meet the abandonment criteria using batch processing.
    */
   public function processAbandonedCarts(): void {
     if (!$this->bentoService->isCommerceIntegrationEnabled()) {
+      $this->logger->debug('Cart abandonment processing skipped: Commerce integration disabled');
       return;
     }
 
     $config = $this->configFactory->get('bento_sdk.settings');
     if (!$config->get('commerce_integration.enable_cart_abandonment')) {
+      $this->logger->debug('Cart abandonment processing skipped: Cart abandonment tracking disabled');
       return;
     }
 
-    $threshold_hours = $config->get('commerce_integration.cart_abandonment_threshold') ?? 24;
-    $threshold_timestamp = time() - ($threshold_hours * 3600);
-
-    $abandoned_carts = $this->findAbandonedCarts($threshold_timestamp);
+    $threshold_hours = $config->get('commerce_integration.cart_abandonment.threshold_hours') ?? 24;
     
-    foreach ($abandoned_carts as $cart) {
-      $this->processAbandonedCart($cart);
+    // Validate threshold value
+    try {
+      $this->validateThreshold($threshold_hours);
+    } catch (\InvalidArgumentException $e) {
+      $this->logger->error('Invalid cart abandonment threshold configuration: @error', [
+        '@error' => $this->sanitizeErrorMessage($e->getMessage()),
+      ]);
+      return;
     }
 
-    $this->logger->info('Processed @count abandoned carts', [
-      '@count' => count($abandoned_carts),
+    $threshold_timestamp = time() - ($threshold_hours * 3600);
+    $batch_size = $config->get('commerce_integration.cart_abandonment.batch_size') ?? self::DEFAULT_BATCH_SIZE;
+
+    $this->processAbandonedCartsBatch($threshold_timestamp, $batch_size);
+  }
+
+  /**
+   * Process abandoned carts in batches to handle large datasets efficiently.
+   *
+   * @param int $threshold_timestamp
+   *   Unix timestamp before which carts are considered abandoned.
+   * @param int $batch_size
+   *   Number of carts to process in each batch.
+   */
+  private function processAbandonedCartsBatch(int $threshold_timestamp, int $batch_size): void {
+    $total_processed = 0;
+    $total_sent = 0;
+    $offset = 0;
+
+    do {
+      $abandoned_carts = $this->findAbandonedCarts($threshold_timestamp, $batch_size, $offset);
+      
+      if (empty($abandoned_carts)) {
+        break;
+      }
+
+      $batch_processed = 0;
+      $batch_sent = 0;
+
+      foreach ($abandoned_carts as $cart) {
+        $batch_processed++;
+        if ($this->processAbandonedCart($cart)) {
+          $batch_sent++;
+        }
+      }
+
+      $total_processed += $batch_processed;
+      $total_sent += $batch_sent;
+      $offset += $batch_size;
+
+      $this->logger->debug('Processed batch of @batch_size carts: @sent events sent', [
+        '@batch_size' => $batch_processed,
+        '@sent' => $batch_sent,
+      ]);
+
+    } while (count($abandoned_carts) === $batch_size);
+
+    $this->logger->info('Cart abandonment processing completed: @total_processed carts processed, @total_sent events sent', [
+      '@total_processed' => $total_processed,
+      '@total_sent' => $total_sent,
     ]);
   }
 
   /**
-   * Find carts that meet abandonment criteria.
+   * Validate cart abandonment threshold value.
+   *
+   * @param int $threshold
+   *   The threshold value in hours to validate.
+   *
+   * @throws \InvalidArgumentException
+   *   When the threshold is outside the valid range.
+   */
+  private function validateThreshold(int $threshold): void {
+    if ($threshold < self::MIN_THRESHOLD_HOURS || $threshold > self::MAX_THRESHOLD_HOURS) {
+      throw new \InvalidArgumentException(sprintf(
+        'Cart abandonment threshold must be between %d and %d hours',
+        self::MIN_THRESHOLD_HOURS,
+        self::MAX_THRESHOLD_HOURS
+      ));
+    }
+  }
+
+  /**
+   * Validate check interval value.
+   *
+   * @param int $check_interval
+   *   The check interval value in minutes to validate.
+   *
+   * @throws \InvalidArgumentException
+   *   When the check interval is outside the valid range.
+   */
+  private function validateCheckInterval(int $check_interval): void {
+    if ($check_interval < self::MIN_CHECK_INTERVAL_MINUTES || $check_interval > self::MAX_CHECK_INTERVAL_MINUTES) {
+      throw new \InvalidArgumentException(sprintf(
+        'Check interval must be between %d and %d minutes',
+        self::MIN_CHECK_INTERVAL_MINUTES,
+        self::MAX_CHECK_INTERVAL_MINUTES
+      ));
+    }
+  }
+
+  /**
+   * Find carts that meet abandonment criteria with pagination support.
    *
    * Queries for draft orders (carts) that haven't been updated since the
    * threshold timestamp and filters them for abandonment criteria.
    *
    * @param int $threshold_timestamp
    *   Unix timestamp before which carts are considered abandoned.
+   * @param int $limit
+   *   Maximum number of carts to return.
+   * @param int $offset
+   *   Number of carts to skip.
    *
    * @return array
    *   Array of OrderInterface objects representing abandoned carts.
    */
-  private function findAbandonedCarts(int $threshold_timestamp): array {
+  private function findAbandonedCarts(int $threshold_timestamp, int $limit = self::DEFAULT_BATCH_SIZE, int $offset = 0): array {
     $order_storage = $this->entityTypeManager->getStorage('commerce_order');
     
     // Get cart order IDs that haven't been updated since threshold
@@ -156,6 +286,8 @@ class CartAbandonmentService {
       ->condition('state', 'draft') // Only draft orders (carts)
       ->condition('changed', $threshold_timestamp, '<')
       ->condition('cart', TRUE) // Only cart orders
+      ->range($offset, $limit)
+      ->sort('changed', 'ASC') // Process oldest carts first
       ->accessCheck(FALSE);
 
     $cart_ids = $query->execute();
@@ -227,11 +359,17 @@ class CartAbandonmentService {
    *
    * @param \Drupal\commerce_order\Entity\OrderInterface $cart
    *   The abandoned cart to process.
+   *
+   * @return bool
+   *   TRUE if the event was sent successfully, FALSE otherwise.
    */
-  private function processAbandonedCart(OrderInterface $cart): void {
+  private function processAbandonedCart(OrderInterface $cart): bool {
     $email = $this->emailExtractor->extractEmailFromOrder($cart);
     if (!$email) {
-      return;
+      $this->logger->warning('Cannot process abandoned cart @cart_id: No valid email found', [
+        '@cart_id' => $cart->id(),
+      ]);
+      return FALSE;
     }
 
     // Generate cart recovery URL
@@ -271,14 +409,18 @@ class CartAbandonmentService {
       // Mark as sent to prevent duplicates
       $this->markAbandonmentEventSent($cart);
       
-      $this->logger->info('Sent cart abandonment event for cart @cart_id', [
+      $this->logger->info('Cart abandonment event sent successfully for cart @cart_id', [
         '@cart_id' => $cart->id(),
       ]);
+      
+      return TRUE;
     } catch (\Exception $e) {
       $this->logger->error('Failed to send cart abandonment event for cart @cart_id: @error', [
         '@cart_id' => $cart->id(),
         '@error' => $this->sanitizeErrorMessage($e->getMessage()),
       ]);
+      
+      return FALSE;
     }
   }
 
@@ -300,7 +442,7 @@ class CartAbandonmentService {
    * Mark abandonment event as sent for this cart.
    *
    * Stores the cart ID in state to prevent duplicate abandonment events.
-   * Maintains only the most recent 1000 entries to prevent unlimited growth.
+   * Maintains only the most recent entries to prevent unlimited growth.
    *
    * @param \Drupal\commerce_order\Entity\OrderInterface $cart
    *   The cart to mark as processed.
@@ -310,7 +452,7 @@ class CartAbandonmentService {
     $sent_events[] = $cart->id();
     
     // Keep only recent entries to prevent unlimited growth
-    $sent_events = array_slice($sent_events, -1000);
+    $sent_events = array_slice($sent_events, -self::MAX_PROCESSED_CARTS_LIMIT);
     
     $this->state->set('bento_sdk.cart_abandonment_sent', $sent_events);
   }
@@ -346,12 +488,14 @@ class CartAbandonmentService {
       try {
         return Url::fromRoute('commerce_cart.page', [], ['absolute' => TRUE])->toString();
       } catch (\Exception $fallback_e) {
+        $this->logger->error('Failed to generate fallback cart recovery URL for cart @cart_id: @error', [
+          '@cart_id' => $cart->id(),
+          '@error' => $this->sanitizeErrorMessage($fallback_e->getMessage()),
+        ]);
         return '';
       }
     }
   }
-
-
 
   /**
    * Format cart items for Bento (reuse from CommerceEventProcessor).

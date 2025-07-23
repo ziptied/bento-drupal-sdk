@@ -848,15 +848,21 @@ class BentoSettingsForm extends ConfigFormBase {
     // Validate cart abandonment settings if Commerce integration is enabled.
     if ($commerce_enabled) {
       $threshold_hours = $form_state->getValue(['cart_abandonment', 'threshold_hours']);
-      if ($threshold_hours !== NULL && ($threshold_hours < 1 || $threshold_hours > 168)) {
-        $form_state->setErrorByName('threshold_hours', 
-          $this->t('Cart abandonment threshold must be between 1 and 168 hours.'));
+      if ($threshold_hours !== NULL && ($threshold_hours < 1 || $threshold_hours > 720)) {
+        $form_state->setErrorByName('cart_abandonment][threshold_hours', 
+          $this->t('Cart abandonment threshold must be between 1 and 720 hours (30 days).'));
       }
       
       $check_interval = $form_state->getValue(['cart_abandonment', 'check_interval']);
       if ($check_interval !== NULL && ($check_interval < 15 || $check_interval > 1440)) {
-        $form_state->setErrorByName('check_interval', 
-          $this->t('Check interval must be between 15 and 1440 minutes.'));
+        $form_state->setErrorByName('cart_abandonment][check_interval', 
+          $this->t('Check interval must be between 15 and 1440 minutes (24 hours).'));
+      }
+
+      $batch_size = $form_state->getValue(['cart_abandonment', 'batch_size']);
+      if ($batch_size !== NULL && ($batch_size < 10 || $batch_size > 500)) {
+        $form_state->setErrorByName('cart_abandonment][batch_size', 
+          $this->t('Batch size must be between 10 and 500 carts.'));
       }
     }
 
@@ -979,16 +985,16 @@ class BentoSettingsForm extends ConfigFormBase {
         }
       }
 
-      // Track cart abandonment setting changes.
-      $cart_abandonment_fields = ['threshold_hours', 'check_interval'];
-      foreach ($cart_abandonment_fields as $field) {
-        $old_value = $config->get("commerce_integration.cart_abandonment.{$field}");
-        $new_value = $form_state->getValue(['cart_abandonment', $field]);
-        if ($old_value !== $new_value) {
-          $changes[] = "commerce_integration.cart_abandonment.{$field}";
-          $config->set("commerce_integration.cart_abandonment.{$field}", $new_value);
-        }
+          // Track cart abandonment setting changes.
+    $cart_abandonment_fields = ['threshold_hours', 'check_interval', 'batch_size'];
+    foreach ($cart_abandonment_fields as $field) {
+      $old_value = $config->get("commerce_integration.cart_abandonment.{$field}");
+      $new_value = $form_state->getValue(['cart_abandonment', $field]);
+      if ($old_value !== $new_value) {
+        $changes[] = "commerce_integration.cart_abandonment.{$field}";
+        $config->set("commerce_integration.cart_abandonment.{$field}", $new_value);
       }
+    }
 
       // Track data enrichment setting changes.
       $enrichment_fields = ['include_product_details', 'include_customer_context', 'include_order_context', 'include_product_images'];
@@ -1135,7 +1141,7 @@ class BentoSettingsForm extends ConfigFormBase {
       '#default_value' => $config->get('commerce_integration.cart_abandonment.threshold_hours') ?? 24,
       '#description' => $this->t('Number of hours of inactivity before a cart is considered abandoned.'),
       '#min' => 1,
-      '#max' => 168, // 1 week
+      '#max' => 720, // 30 days
       '#step' => 1,
       '#disabled' => !$can_edit_performance,
     ];
@@ -1148,6 +1154,17 @@ class BentoSettingsForm extends ConfigFormBase {
       '#min' => 15,
       '#max' => 1440, // 24 hours
       '#step' => 15,
+      '#disabled' => !$can_edit_performance,
+    ];
+
+    $form['commerce_integration']['cart_abandonment']['batch_size'] = [
+      '#type' => 'number',
+      '#title' => $this->t('Batch Size'),
+      '#default_value' => $config->get('commerce_integration.cart_abandonment.batch_size') ?? 50,
+      '#description' => $this->t('Number of abandoned carts to process in each batch. Larger batches improve performance but may use more memory.'),
+      '#min' => 10,
+      '#max' => 500,
+      '#step' => 10,
       '#disabled' => !$can_edit_performance,
     ];
 
