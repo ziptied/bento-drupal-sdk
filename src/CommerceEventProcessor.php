@@ -38,6 +38,13 @@ class CommerceEventProcessor {
   protected LoggerInterface $logger;
 
   /**
+   * The email extractor service.
+   *
+   * @var \Drupal\bento_sdk\CommerceEmailExtractor
+   */
+  protected CommerceEmailExtractor $emailExtractor;
+
+  /**
    * Constructs a new CommerceEventProcessor.
    *
    * @param \Drupal\bento_sdk\BentoService $bento_service
@@ -46,11 +53,14 @@ class CommerceEventProcessor {
    *   The configuration factory.
    * @param \Psr\Log\LoggerInterface $logger
    *   The logger service.
+   * @param \Drupal\bento_sdk\CommerceEmailExtractor $email_extractor
+   *   The email extractor service.
    */
-  public function __construct(BentoService $bento_service, ConfigFactoryInterface $config_factory, LoggerInterface $logger) {
+  public function __construct(BentoService $bento_service, ConfigFactoryInterface $config_factory, LoggerInterface $logger, CommerceEmailExtractor $email_extractor) {
     $this->bentoService = $bento_service;
     $this->configFactory = $config_factory;
     $this->logger = $logger;
+    $this->emailExtractor = $email_extractor;
   }
 
   /**
@@ -72,10 +82,18 @@ class CommerceEventProcessor {
       return;
     }
 
+    // Check if email collection is allowed
+    if (!$this->emailExtractor->isEmailCollectionAllowed($cart)) {
+      $this->logger->info('Skipping cart event - email collection not allowed for cart @cart_id', [
+        '@cart_id' => $cart->id(),
+      ]);
+      return;
+    }
+
     // Extract email from cart
-    $email = $this->extractEmailFromCart($cart);
+    $email = $this->emailExtractor->extractEmailFromOrder($cart);
     if (!$email) {
-      $this->logger->info('Skipping cart event - no email found for cart @cart_id', [
+      $this->logger->info('Skipping cart event - no valid email found for cart @cart_id', [
         '@cart_id' => $cart->id(),
       ]);
       return;
@@ -98,7 +116,10 @@ class CommerceEventProcessor {
     ];
 
     // Add customer fields if available
-    $this->addCustomerFields($event_data, $cart);
+    $customer_name = $this->emailExtractor->extractCustomerName($cart);
+    if (!empty($customer_name)) {
+      $event_data['fields'] = $customer_name;
+    }
 
     // Send event
     $success = $this->bentoService->sendEvent($event_data);
@@ -116,37 +137,7 @@ class CommerceEventProcessor {
     }
   }
 
-  /**
-   * Extracts email from cart, checking multiple sources.
-   *
-   * @param \Drupal\commerce_order\Entity\OrderInterface $cart
-   *   The cart order entity.
-   *
-   * @return string|null
-   *   The email address if found, NULL otherwise.
-   */
-  private function extractEmailFromCart(OrderInterface $cart): ?string {
-    // Try to get email from customer first
-    if ($customer = $cart->getCustomer()) {
-      if ($customer->isAuthenticated()) {
-        return $customer->getEmail();
-      }
-    }
 
-    // Try to get from order email field
-    if ($cart->hasField('mail') && !$cart->get('mail')->isEmpty()) {
-      return $cart->get('mail')->value;
-    }
-
-    // Try to get email from billing profile
-    if ($billing_profile = $cart->getBillingProfile()) {
-      if ($billing_profile->hasField('field_email') && !$billing_profile->get('field_email')->isEmpty()) {
-        return $billing_profile->get('field_email')->value;
-      }
-    }
-
-    return NULL;
-  }
 
   /**
    * Formats cart items for Bento event data.
@@ -222,10 +213,18 @@ class CommerceEventProcessor {
       return;
     }
 
+    // Check if email collection is allowed
+    if (!$this->emailExtractor->isEmailCollectionAllowed($order)) {
+      $this->logger->info('Skipping order event - email collection not allowed for order @order_id', [
+        '@order_id' => $order->id(),
+      ]);
+      return;
+    }
+
     // Extract email from order
-    $email = $this->extractEmailFromOrder($order);
+    $email = $this->emailExtractor->extractEmailFromOrder($order);
     if (!$email) {
-      $this->logger->info('Skipping order event - no email found for order @order_id', [
+      $this->logger->info('Skipping order event - no valid email found for order @order_id', [
         '@order_id' => $order->id(),
       ]);
       return;
@@ -260,7 +259,10 @@ class CommerceEventProcessor {
     }
 
     // Add customer information
-    $this->addCustomerFields($event_data, $order);
+    $customer_name = $this->emailExtractor->extractCustomerName($order);
+    if (!empty($customer_name)) {
+      $event_data['fields'] = $customer_name;
+    }
     
     // Add billing/shipping information
     $this->addAddressInformation($event_data, $order);
@@ -302,10 +304,18 @@ class CommerceEventProcessor {
 
     $order = $payment->getOrder();
     
+    // Check if email collection is allowed
+    if (!$this->emailExtractor->isEmailCollectionAllowed($order)) {
+      $this->logger->info('Skipping payment event - email collection not allowed for order @order_id', [
+        '@order_id' => $order->id(),
+      ]);
+      return;
+    }
+
     // Extract email from order
-    $email = $this->extractEmailFromOrder($order);
+    $email = $this->emailExtractor->extractEmailFromOrder($order);
     if (!$email) {
-      $this->logger->info('Skipping payment event - no email found for order @order_id', [
+      $this->logger->info('Skipping payment event - no valid email found for order @order_id', [
         '@order_id' => $order->id(),
       ]);
       return;
@@ -328,7 +338,10 @@ class CommerceEventProcessor {
     ];
 
     // Add customer information
-    $this->addCustomerFields($event_data, $order);
+    $customer_name = $this->emailExtractor->extractCustomerName($order);
+    if (!empty($customer_name)) {
+      $event_data['fields'] = $customer_name;
+    }
 
     // Send event
     $success = $this->bentoService->sendEvent($event_data);
@@ -346,37 +359,7 @@ class CommerceEventProcessor {
     }
   }
 
-  /**
-   * Extracts email from order, checking multiple sources.
-   *
-   * @param \Drupal\commerce_order\Entity\OrderInterface $order
-   *   The order entity.
-   *
-   * @return string|null
-   *   The email address if found, NULL otherwise.
-   */
-  private function extractEmailFromOrder(OrderInterface $order): ?string {
-    // Try order email field first
-    if ($order->hasField('mail') && !$order->get('mail')->isEmpty()) {
-      return $order->get('mail')->value;
-    }
 
-    // Try customer email
-    if ($customer = $order->getCustomer()) {
-      if ($customer->isAuthenticated()) {
-        return $customer->getEmail();
-      }
-    }
-
-    // Try billing profile email
-    if ($billing_profile = $order->getBillingProfile()) {
-      if ($billing_profile->hasField('field_email') && !$billing_profile->get('field_email')->isEmpty()) {
-        return $billing_profile->get('field_email')->value;
-      }
-    }
-
-    return NULL;
-  }
 
   /**
    * Formats order items for Bento event data.
@@ -460,54 +443,6 @@ class CommerceEventProcessor {
     }
   }
 
-  /**
-   * Adds customer fields to event data if available.
-   *
-   * @param array &$event_data
-   *   The event data array to modify.
-   * @param \Drupal\commerce_order\Entity\OrderInterface $cart
-   *   The cart order entity.
-   */
-  private function addCustomerFields(array &$event_data, OrderInterface $cart): void {
-    $fields = [];
 
-    // Try to get customer fields from user account
-    if ($customer = $cart->getCustomer()) {
-      if ($customer->isAuthenticated()) {
-        // Try to get first/last name from user fields
-        if ($customer->hasField('field_first_name') && !$customer->get('field_first_name')->isEmpty()) {
-          $fields['first_name'] = $customer->get('field_first_name')->value;
-        }
-        if ($customer->hasField('field_last_name') && !$customer->get('field_last_name')->isEmpty()) {
-          $fields['last_name'] = $customer->get('field_last_name')->value;
-        }
-      }
-    }
-
-    // Try to get name from billing profile if not found in user account
-    if ($billing_profile = $cart->getBillingProfile()) {
-      if (empty($fields['first_name']) && $billing_profile->hasField('field_first_name') && !$billing_profile->get('field_first_name')->isEmpty()) {
-        $fields['first_name'] = $billing_profile->get('field_first_name')->value;
-      }
-      if (empty($fields['last_name']) && $billing_profile->hasField('field_last_name') && !$billing_profile->get('field_last_name')->isEmpty()) {
-        $fields['last_name'] = $billing_profile->get('field_last_name')->value;
-      }
-
-      // Try address fields for name if custom fields don't exist
-      if (empty($fields['first_name']) && empty($fields['last_name']) && $billing_profile->hasField('address') && !$billing_profile->get('address')->isEmpty()) {
-        $address = $billing_profile->get('address')->first()->getValue();
-        if (!empty($address['given_name'])) {
-          $fields['first_name'] = $address['given_name'];
-        }
-        if (!empty($address['family_name'])) {
-          $fields['last_name'] = $address['family_name'];
-        }
-      }
-    }
-
-    if (!empty($fields)) {
-      $event_data['fields'] = $fields;
-    }
-  }
 
 }

@@ -63,6 +63,13 @@ class CartAbandonmentService {
   private BentoService $bentoService;
 
   /**
+   * The email extractor service.
+   *
+   * @var \Drupal\bento_sdk\CommerceEmailExtractor
+   */
+  private CommerceEmailExtractor $emailExtractor;
+
+  /**
    * Constructs a new CartAbandonmentService.
    *
    * @param \Drupal\Core\Config\ConfigFactoryInterface $config_factory
@@ -77,6 +84,8 @@ class CartAbandonmentService {
    *   The logger service.
    * @param \Drupal\bento_sdk\BentoService $bento_service
    *   The Bento service.
+   * @param \Drupal\bento_sdk\CommerceEmailExtractor $email_extractor
+   *   The email extractor service.
    */
   public function __construct(
     ConfigFactoryInterface $config_factory,
@@ -84,7 +93,8 @@ class CartAbandonmentService {
     Connection $database,
     StateInterface $state,
     LoggerInterface $logger,
-    BentoService $bento_service
+    BentoService $bento_service,
+    CommerceEmailExtractor $email_extractor
   ) {
     $this->configFactory = $config_factory;
     $this->entityTypeManager = $entity_type_manager;
@@ -92,6 +102,7 @@ class CartAbandonmentService {
     $this->state = $state;
     $this->logger = $logger;
     $this->bentoService = $bento_service;
+    $this->emailExtractor = $email_extractor;
   }
 
   /**
@@ -184,8 +195,13 @@ class CartAbandonmentService {
       return FALSE;
     }
 
-    // Must have email
-    $email = $this->extractEmailFromCart($cart);
+    // Check if email collection is allowed
+    if (!$this->emailExtractor->isEmailCollectionAllowed($cart)) {
+      return FALSE;
+    }
+
+    // Must have valid email
+    $email = $this->emailExtractor->extractEmailFromOrder($cart);
     if (!$email) {
       return FALSE;
     }
@@ -213,7 +229,7 @@ class CartAbandonmentService {
    *   The abandoned cart to process.
    */
   private function processAbandonedCart(OrderInterface $cart): void {
-    $email = $this->extractEmailFromCart($cart);
+    $email = $this->emailExtractor->extractEmailFromOrder($cart);
     if (!$email) {
       return;
     }
@@ -243,17 +259,9 @@ class CartAbandonmentService {
     ];
 
     // Add customer fields if available
-    if ($customer = $cart->getCustomer()) {
-      $fields = [];
-      if ($customer->hasField('field_first_name') && !$customer->get('field_first_name')->isEmpty()) {
-        $fields['first_name'] = $customer->get('field_first_name')->value;
-      }
-      if ($customer->hasField('field_last_name') && !$customer->get('field_last_name')->isEmpty()) {
-        $fields['last_name'] = $customer->get('field_last_name')->value;
-      }
-      if (!empty($fields)) {
-        $event_data['fields'] = $fields;
-      }
+    $customer_name = $this->emailExtractor->extractCustomerName($cart);
+    if (!empty($customer_name)) {
+      $event_data['fields'] = $customer_name;
     }
 
     // Send event
@@ -343,39 +351,7 @@ class CartAbandonmentService {
     }
   }
 
-  /**
-   * Extract email from cart (reuse from CommerceEventProcessor).
-   *
-   * Tries multiple sources to find a valid email address for the cart.
-   *
-   * @param \Drupal\commerce_order\Entity\OrderInterface $cart
-   *   The cart to extract email from.
-   *
-   * @return string|null
-   *   The email address if found, NULL otherwise.
-   */
-  private function extractEmailFromCart(OrderInterface $cart): ?string {
-    // Try to get email from customer
-    if ($customer = $cart->getCustomer()) {
-      if ($customer->isAuthenticated()) {
-        return $customer->getEmail();
-      }
-    }
 
-    // Try to get email from billing profile
-    if ($billing_profile = $cart->getBillingProfile()) {
-      if ($billing_profile->hasField('field_email') && !$billing_profile->get('field_email')->isEmpty()) {
-        return $billing_profile->get('field_email')->value;
-      }
-    }
-
-    // Try to get from order email field
-    if ($cart->hasField('mail') && !$cart->get('mail')->isEmpty()) {
-      return $cart->get('mail')->value;
-    }
-
-    return NULL;
-  }
 
   /**
    * Format cart items for Bento (reuse from CommerceEventProcessor).
