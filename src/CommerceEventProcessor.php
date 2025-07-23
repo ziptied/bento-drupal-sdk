@@ -204,6 +204,263 @@ class CommerceEventProcessor {
   }
 
   /**
+   * Processes an order event and sends it to Bento.
+   *
+   * @param \Drupal\commerce_order\Entity\OrderInterface $order
+   *   The order entity.
+   * @param string $event_type
+   *   The event type (e.g., '$purchase', '$order_fulfilled').
+   */
+  public function processOrderEvent(OrderInterface $order, string $event_type): void {
+    // Check if Commerce integration is enabled
+    if (!$this->bentoService->isCommerceIntegrationEnabled()) {
+      return;
+    }
+
+    // Check if order event tracking is specifically enabled
+    if (!$this->bentoService->isOrderTrackingEnabled()) {
+      return;
+    }
+
+    // Extract email from order
+    $email = $this->extractEmailFromOrder($order);
+    if (!$email) {
+      $this->logger->info('Skipping order event - no email found for order @order_id', [
+        '@order_id' => $order->id(),
+      ]);
+      return;
+    }
+
+    // Build base event data
+    $event_data = [
+      'type' => $event_type,
+      'email' => $email,
+      'details' => [
+        'order_id' => $order->id(),
+        'order_number' => $order->getOrderNumber(),
+        'order_total' => $this->formatPrice($order->getTotalPrice()),
+        'currency' => $order->getTotalPrice()->getCurrencyCode(),
+        'order_state' => $order->getState()->getId(),
+        'item_count' => count($order->getItems()),
+        'items' => $this->formatOrderItems($order->getItems()),
+        'placed' => $order->getPlacedTime(),
+        'completed' => $order->getCompletedTime(),
+      ],
+    ];
+
+    // Add unique identifier and value for purchase events
+    if ($event_type === '$purchase') {
+      $event_data['details']['unique'] = [
+        'key' => $order->getOrderNumber(),
+      ];
+      $event_data['details']['value'] = [
+        'currency' => $order->getTotalPrice()->getCurrencyCode(),
+        'amount' => (int) ($order->getTotalPrice()->getNumber() * 100), // Convert to cents
+      ];
+    }
+
+    // Add customer information
+    $this->addCustomerFields($event_data, $order);
+    
+    // Add billing/shipping information
+    $this->addAddressInformation($event_data, $order);
+
+    // Send event
+    $success = $this->bentoService->sendEvent($event_data);
+    
+    if ($success) {
+      $this->logger->info('Commerce order event sent successfully: @type for order @order_id', [
+        '@type' => $event_type,
+        '@order_id' => $order->id(),
+      ]);
+    } else {
+      $this->logger->warning('Failed to send Commerce order event: @type for order @order_id', [
+        '@type' => $event_type,
+        '@order_id' => $order->id(),
+      ]);
+    }
+  }
+
+  /**
+   * Processes a payment event and sends it to Bento.
+   *
+   * @param \Drupal\commerce_payment\Entity\PaymentInterface $payment
+   *   The payment entity.
+   * @param string $event_type
+   *   The event type (e.g., '$order_paid').
+   */
+  public function processPaymentEvent($payment, string $event_type): void {
+    // Check if Commerce integration is enabled
+    if (!$this->bentoService->isCommerceIntegrationEnabled()) {
+      return;
+    }
+
+    // Check if payment event tracking is specifically enabled
+    if (!$this->bentoService->isPaymentTrackingEnabled()) {
+      return;
+    }
+
+    $order = $payment->getOrder();
+    
+    // Extract email from order
+    $email = $this->extractEmailFromOrder($order);
+    if (!$email) {
+      $this->logger->info('Skipping payment event - no email found for order @order_id', [
+        '@order_id' => $order->id(),
+      ]);
+      return;
+    }
+
+    // Build payment event data
+    $event_data = [
+      'type' => $event_type,
+      'email' => $email,
+      'details' => [
+        'order_id' => $order->id(),
+        'order_number' => $order->getOrderNumber(),
+        'payment_id' => $payment->id(),
+        'payment_method' => $payment->getPaymentMethod() ? $payment->getPaymentMethod()->label() : 'Unknown',
+        'payment_gateway' => $payment->getPaymentGateway()->label(),
+        'amount_paid' => $this->formatPrice($payment->getAmount()),
+        'payment_state' => $payment->getState()->getId(),
+        'completed_time' => $payment->getCompletedTime(),
+      ],
+    ];
+
+    // Add customer information
+    $this->addCustomerFields($event_data, $order);
+
+    // Send event
+    $success = $this->bentoService->sendEvent($event_data);
+    
+    if ($success) {
+      $this->logger->info('Commerce payment event sent successfully: @type for payment @payment_id', [
+        '@type' => $event_type,
+        '@payment_id' => $payment->id(),
+      ]);
+    } else {
+      $this->logger->warning('Failed to send Commerce payment event: @type for payment @payment_id', [
+        '@type' => $event_type,
+        '@payment_id' => $payment->id(),
+      ]);
+    }
+  }
+
+  /**
+   * Extracts email from order, checking multiple sources.
+   *
+   * @param \Drupal\commerce_order\Entity\OrderInterface $order
+   *   The order entity.
+   *
+   * @return string|null
+   *   The email address if found, NULL otherwise.
+   */
+  private function extractEmailFromOrder(OrderInterface $order): ?string {
+    // Try order email field first
+    if ($order->hasField('mail') && !$order->get('mail')->isEmpty()) {
+      return $order->get('mail')->value;
+    }
+
+    // Try customer email
+    if ($customer = $order->getCustomer()) {
+      if ($customer->isAuthenticated()) {
+        return $customer->getEmail();
+      }
+    }
+
+    // Try billing profile email
+    if ($billing_profile = $order->getBillingProfile()) {
+      if ($billing_profile->hasField('field_email') && !$billing_profile->get('field_email')->isEmpty()) {
+        return $billing_profile->get('field_email')->value;
+      }
+    }
+
+    return NULL;
+  }
+
+  /**
+   * Formats order items for Bento event data.
+   *
+   * @param array $items
+   *   Array of order items.
+   *
+   * @return array
+   *   Formatted items array.
+   */
+  private function formatOrderItems(array $items): array {
+    $formatted_items = [];
+    
+    foreach ($items as $item) {
+      $product = $item->getPurchasedEntity();
+      
+      if (!$product) {
+        continue;
+      }
+
+      $formatted_item = [
+        'product_id' => $product->id(),
+        'product_sku' => $product->getSku(),
+        'product_name' => $product->getTitle(),
+        'quantity' => (int) $item->getQuantity(),
+        'unit_price' => $this->formatPrice($item->getUnitPrice()),
+        'total_price' => $this->formatPrice($item->getTotalPrice()),
+      ];
+
+      // Add product URL if available
+      if ($product->hasLinkTemplate('canonical')) {
+        $formatted_item['product_url'] = $product->toUrl('canonical', ['absolute' => TRUE])->toString();
+      }
+
+      $formatted_items[] = $formatted_item;
+    }
+    
+    return $formatted_items;
+  }
+
+  /**
+   * Adds billing and shipping address information to event data.
+   *
+   * @param array &$event_data
+   *   The event data array to modify.
+   * @param \Drupal\commerce_order\Entity\OrderInterface $order
+   *   The order entity.
+   */
+  private function addAddressInformation(array &$event_data, OrderInterface $order): void {
+    // Add billing address
+    if ($billing_profile = $order->getBillingProfile()) {
+      if ($billing_profile->hasField('address') && !$billing_profile->get('address')->isEmpty()) {
+        $address = $billing_profile->get('address')->first()->getValue();
+        $event_data['details']['billing_address'] = [
+          'country' => $address['country_code'],
+          'state' => $address['administrative_area'],
+          'city' => $address['locality'],
+          'postal_code' => $address['postal_code'],
+          'address_line_1' => $address['address_line1'],
+          'address_line_2' => $address['address_line2'],
+        ];
+      }
+    }
+
+    // Add shipping address if different and available
+    if ($order->hasField('shipments') && !$order->get('shipments')->isEmpty()) {
+      $shipment = $order->get('shipments')->entity;
+      if ($shipment && $shipping_profile = $shipment->getShippingProfile()) {
+        if ($shipping_profile->hasField('address') && !$shipping_profile->get('address')->isEmpty()) {
+          $address = $shipping_profile->get('address')->first()->getValue();
+          $event_data['details']['shipping_address'] = [
+            'country' => $address['country_code'],
+            'state' => $address['administrative_area'],
+            'city' => $address['locality'],
+            'postal_code' => $address['postal_code'],
+            'address_line_1' => $address['address_line1'],
+            'address_line_2' => $address['address_line2'],
+          ];
+        }
+      }
+    }
+  }
+
+  /**
    * Adds customer fields to event data if available.
    *
    * @param array &$event_data

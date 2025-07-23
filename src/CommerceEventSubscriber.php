@@ -6,6 +6,11 @@ use Drupal\commerce_cart\Event\CartEvents;
 use Drupal\commerce_cart\Event\CartEntityAddEvent;
 use Drupal\commerce_cart\Event\CartOrderItemUpdateEvent;
 use Drupal\commerce_cart\Event\CartOrderItemRemoveEvent;
+use Drupal\commerce_order\Event\OrderEvents;
+use Drupal\commerce_order\Event\OrderEvent;
+use Drupal\commerce_payment\Event\PaymentEvents;
+use Drupal\commerce_payment\Event\PaymentEvent;
+use Drupal\state_machine\Event\WorkflowTransitionEvent;
 use Symfony\Component\EventDispatcher\EventSubscriberInterface;
 use Psr\Log\LoggerInterface;
 
@@ -48,21 +53,38 @@ class CommerceEventSubscriber implements EventSubscriberInterface {
    * {@inheritdoc}
    */
   public static function getSubscribedEvents(): array {
-    // Only subscribe to events if Commerce cart module is available
-    if (!\Drupal::moduleHandler()->moduleExists('commerce_cart')) {
-      return [];
+    $events = [];
+
+    // Cart events - only if commerce_cart module is available
+    if (\Drupal::moduleHandler()->moduleExists('commerce_cart') && 
+        class_exists('\Drupal\commerce_cart\Event\CartEvents')) {
+      $events[CartEvents::CART_ENTITY_ADD] = 'onCartItemAdd';
+      $events[CartEvents::CART_ORDER_ITEM_UPDATE] = 'onCartItemUpdate';
+      $events[CartEvents::CART_ORDER_ITEM_REMOVE] = 'onCartItemRemove';
     }
 
-    // Check if the CartEvents class exists to avoid fatal errors
-    if (!class_exists('\Drupal\commerce_cart\Event\CartEvents')) {
-      return [];
+    // Order events - only if commerce_order module is available
+    if (\Drupal::moduleHandler()->moduleExists('commerce_order') && 
+        class_exists('\Drupal\commerce_order\Event\OrderEvents')) {
+      $events[OrderEvents::ORDER_PLACE] = 'onOrderPlace';
+      $events[OrderEvents::ORDER_UPDATE] = 'onOrderUpdate';
     }
 
-    return [
-      CartEvents::CART_ENTITY_ADD => 'onCartItemAdd',
-      CartEvents::CART_ORDER_ITEM_UPDATE => 'onCartItemUpdate',
-      CartEvents::CART_ORDER_ITEM_REMOVE => 'onCartItemRemove',
-    ];
+    // Payment events - only if commerce_payment module is available
+    if (\Drupal::moduleHandler()->moduleExists('commerce_payment') && 
+        class_exists('\Drupal\commerce_payment\Event\PaymentEvents')) {
+      $events[PaymentEvents::PAYMENT_INSERT] = 'onPaymentInsert';
+    }
+
+    // State machine events for order status changes
+    if (\Drupal::moduleHandler()->moduleExists('state_machine') && 
+        class_exists('\Drupal\state_machine\Event\WorkflowTransitionEvent')) {
+      $events['commerce_order.place.post_transition'] = 'onOrderStateChange';
+      $events['commerce_order.fulfill.post_transition'] = 'onOrderStateChange';
+      $events['commerce_order.cancel.post_transition'] = 'onOrderStateChange';
+    }
+
+    return $events;
   }
 
   /**
@@ -124,6 +146,97 @@ class CommerceEventSubscriber implements EventSubscriberInterface {
   }
 
   /**
+   * Handles order placement events.
+   *
+   * @param \Drupal\commerce_order\Event\OrderEvent $event
+   *   The order event.
+   */
+  public function onOrderPlace(OrderEvent $event): void {
+    try {
+      $this->processor->processOrderEvent($event->getOrder(), '$purchase');
+    }
+    catch (\Exception $e) {
+      $this->logger->error('Failed to process order place event: @message', [
+        '@message' => $e->getMessage(),
+      ]);
+    }
+  }
+
+  /**
+   * Handles order update events.
+   *
+   * @param \Drupal\commerce_order\Event\OrderEvent $event
+   *   The order event.
+   */
+  public function onOrderUpdate(OrderEvent $event): void {
+    try {
+      $order = $event->getOrder();
+      if ($this->shouldTrackOrderUpdate($order)) {
+        $this->processor->processOrderEvent($order, '$order_updated');
+      }
+    }
+    catch (\Exception $e) {
+      $this->logger->error('Failed to process order update event: @message', [
+        '@message' => $e->getMessage(),
+      ]);
+    }
+  }
+
+  /**
+   * Handles payment insertion events.
+   *
+   * @param \Drupal\commerce_payment\Event\PaymentEvent $event
+   *   The payment event.
+   */
+  public function onPaymentInsert(PaymentEvent $event): void {
+    try {
+      $payment = $event->getPayment();
+      if ($payment->getState()->getId() === 'completed') {
+        $this->processor->processPaymentEvent($payment, '$order_paid');
+      }
+    }
+    catch (\Exception $e) {
+      $this->logger->error('Failed to process payment insert event: @message', [
+        '@message' => $e->getMessage(),
+      ]);
+    }
+  }
+
+  /**
+   * Handles order state change events.
+   *
+   * @param \Drupal\state_machine\Event\WorkflowTransitionEvent $event
+   *   The workflow transition event.
+   */
+  public function onOrderStateChange(WorkflowTransitionEvent $event): void {
+    try {
+      $order = $event->getEntity();
+      $transition = $event->getTransition();
+      
+      $transition_id = $transition->getId();
+      $event_type = NULL;
+      
+      switch ($transition_id) {
+        case 'fulfill':
+          $event_type = '$order_fulfilled';
+          break;
+        case 'cancel':
+          $event_type = '$order_cancelled';
+          break;
+      }
+      
+      if ($event_type) {
+        $this->processor->processOrderEvent($order, $event_type);
+      }
+    }
+    catch (\Exception $e) {
+      $this->logger->error('Failed to process order state change event: @message', [
+        '@message' => $e->getMessage(),
+      ]);
+    }
+  }
+
+  /**
    * Determines if this is a new cart based on item count and timestamps.
    *
    * Since Commerce doesn't have a specific cart creation event, we detect
@@ -148,6 +261,38 @@ class CommerceEventSubscriber implements EventSubscriberInterface {
     
     // Consider it a new cart if created within the last 10 seconds
     return ($current_time - $created_time) <= 10;
+  }
+
+  /**
+   * Determines if an order update should be tracked.
+   *
+   * Only tracks significant order updates, not every save operation.
+   *
+   * @param \Drupal\commerce_order\Entity\OrderInterface $order
+   *   The order entity.
+   *
+   * @return bool
+   *   TRUE if the order update should be tracked, FALSE otherwise.
+   */
+  private function shouldTrackOrderUpdate($order): bool {
+    $original = $order->original ?? NULL;
+    if (!$original) {
+      return FALSE;
+    }
+
+    // Track if state changed
+    if ($order->getState()->getId() !== $original->getState()->getId()) {
+      return TRUE;
+    }
+
+    // Track if total changed significantly
+    $current_total = $order->getTotalPrice()->getNumber();
+    $original_total = $original->getTotalPrice()->getNumber();
+    if (abs($current_total - $original_total) > 0.01) {
+      return TRUE;
+    }
+
+    return FALSE;
   }
 
 }
