@@ -6,3 +6,4 @@ package: 'Bento'
 dependencies:
   - drupal:system
   - webform:webform
+  - commerce:commerce (optional)

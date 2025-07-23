@@ -1590,6 +1590,82 @@ class BentoService {
   }
 
   /**
+   * Check if Drupal Commerce is available and enabled.
+   *
+   * @return bool
+   *   TRUE if Commerce module is installed and enabled, FALSE otherwise.
+   */
+  public function isCommerceAvailable(): bool {
+    return \Drupal::moduleHandler()->moduleExists('commerce');
+  }
+
+  /**
+   * Check if Commerce integration is enabled.
+   *
+   * @return bool
+   *   TRUE if Commerce is available and integration is enabled, FALSE otherwise.
+   */
+  public function isCommerceIntegrationEnabled(): bool {
+    $config = $this->configFactory->get('bento_sdk.settings');
+    return $this->isCommerceAvailable() && $config->get('commerce_integration.enabled');
+  }
+
+  /**
+   * Check if cart event tracking is enabled.
+   *
+   * @return bool
+   *   TRUE if cart events should be tracked, FALSE otherwise.
+   */
+  public function isCartTrackingEnabled(): bool {
+    $config = $this->configFactory->get('bento_sdk.settings');
+    return $this->isCommerceIntegrationEnabled() && $config->get('commerce_integration.track_cart_events');
+  }
+
+  /**
+   * Check if order event tracking is enabled.
+   *
+   * @return bool
+   *   TRUE if order events should be tracked, FALSE otherwise.
+   */
+  public function isOrderTrackingEnabled(): bool {
+    $config = $this->configFactory->get('bento_sdk.settings');
+    return $this->isCommerceIntegrationEnabled() && $config->get('commerce_integration.track_order_events');
+  }
+
+  /**
+   * Check if payment event tracking is enabled.
+   *
+   * @return bool
+   *   TRUE if payment events should be tracked, FALSE otherwise.
+   */
+  public function isPaymentTrackingEnabled(): bool {
+    $config = $this->configFactory->get('bento_sdk.settings');
+    return $this->isCommerceIntegrationEnabled() && $config->get('commerce_integration.track_payment_events');
+  }
+
+  /**
+   * Check if cart abandonment tracking is enabled.
+   *
+   * @return bool
+   *   TRUE if cart abandonment should be tracked, FALSE otherwise.
+   */
+  public function isCartAbandonmentEnabled(): bool {
+    $config = $this->configFactory->get('bento_sdk.settings');
+    return $this->isCommerceIntegrationEnabled() && $config->get('commerce_integration.enable_cart_abandonment');
+  }
+
+  /**
+   * Get the cart abandonment threshold in hours.
+   *
+   * @return int
+   *   Number of hours after which a cart is considered abandoned.
+   */
+  public function getCartAbandonmentThreshold(): int {
+    $config = $this->configFactory->get('bento_sdk.settings');
+    return $config->get('commerce_integration.cart_abandonment_threshold') ?: 24;
+  }
+
+  /**
    * Send a test webform event with sample data.
    *
    * Creates a mock webform submission event for testing the integration.

@@ -85,3 +85,25 @@ bento_sdk.settings:
         dead_letter_retention:
           type: integer
           label: 'Dead letter queue retention period in seconds'
+    commerce_integration:
+      type: mapping
+      label: 'Commerce Integration Settings'
+      mapping:
+        enabled:
+          type: boolean
+          label: 'Enable Commerce Integration'
+        track_cart_events:
+          type: boolean
+          label: 'Track Cart Events'
+        track_order_events:
+          type: boolean
+          label: 'Track Order Events'
+        track_payment_events:
+          type: boolean
+          label: 'Track Payment Events'
+        enable_cart_abandonment:
+          type: boolean
+          label: 'Enable Cart Abandonment Tracking'
+        cart_abandonment_threshold:
+          type: integer
+          label: 'Cart Abandonment Threshold (hours)'
