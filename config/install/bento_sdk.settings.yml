@@ -38,7 +38,7 @@ commerce_integration:
     order_paid: true
     order_fulfilled: true
     order_cancelled: true
-    cart_abandoned: true
+    cart_abandoned: false
   cart_abandonment:
     threshold_hours: 24
     check_interval: 60

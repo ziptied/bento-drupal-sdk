@@ -1112,7 +1112,7 @@ class BentoSettingsForm extends ConfigFormBase {
       $form['commerce_integration']['event_types'][$event_key] = [
         '#type' => 'checkbox',
         '#title' => $event_info['title'],
-        '#default_value' => $config->get("commerce_integration.event_types.{$event_key}") ?? TRUE,
+        '#default_value' => $config->get("commerce_integration.event_types.{$event_key}") ?? ($event_key === 'cart_abandoned' ? FALSE : TRUE),
         '#description' => $event_info['description'],
         '#disabled' => !$can_edit_performance,
       ];
