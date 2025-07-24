@@ -805,7 +805,7 @@ class BentoSettingsForm extends ConfigFormBase {
     }
 
       // Track data enrichment setting changes.
-      $enrichment_fields = ['include_product_details', 'include_customer_context', 'include_order_context', 'include_product_images'];
+      $enrichment_fields = ['include_product_details', 'include_customer_context', 'include_order_context'];
       foreach ($enrichment_fields as $field) {
         $old_value = $config->get("commerce_integration.data_enrichment.{$field}");
         $new_value = $form_state->getValue($field);
