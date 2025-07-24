@@ -231,6 +231,152 @@ $bento->clearAuthorsCache();
 
 The author selection system ensures that all emails sent through Bento use verified sender addresses, maintaining deliverability and compliance with email authentication standards.
 
+#### Test Email Configuration
+
+The Bento SDK includes a built-in test email functionality that allows you to validate your transactional email configuration directly from the admin interface.
+
+##### How It Works
+
+The test email feature provides a simple way to verify that your Bento integration is working correctly by sending a test email through the configured system.
+
+```php
+// Check if test email can be sent programmatically
+$bento = \Drupal::service('bento.sdk');
+$config = \Drupal::config('bento_sdk.settings');
+
+// Verify prerequisites
+$can_send = $bento->isConfigured() && 
+           !empty($config->get('default_author_email')) &&
+           filter_var($config->get('default_author_email'), FILTER_VALIDATE_EMAIL);
+
+// Send test email programmatically
+if ($can_send) {
+  $success = $bento->sendTransactionalEmail([
+    'to' => $config->get('default_author_email'),
+    'from' => $config->get('default_author_email'),
+    'subject' => 'Test Email from Bento SDK',
+    'html_body' => '<p>This is a test email from Bento SDK.</p>',
+    'text_body' => 'This is a test email from Bento SDK.',
+  ]);
+}
+```
+
+##### Prerequisites
+
+Before you can send test emails, ensure the following requirements are met:
+
+1. **API Credentials Configured**: Site UUID, Publishable Key, and Secret Key must be properly set
+2. **Email Routing Enabled**: "Route Drupal emails through Bento" must be checked
+3. **Author Selected**: A verified sender email must be selected from the dropdown
+4. **User Permissions**: You must have the "administer bento sdk" permission
+5. **Rate Limits**: You must not have exceeded the hourly test email limit
+
+##### Using the Test Email Button
+
+1. **Navigate to Settings**: Go to **Configuration > Bento > Settings** (`/admin/config/bento/settings`)
+2. **Enable Email Routing**: Check "Route Drupal emails through Bento"
+3. **Select Author**: Choose a verified sender email from the dropdown
+4. **Send Test**: Click the "Send Test Email" button in the "Test Email Configuration" section
+
+The interface provides real-time feedback:
+- **Button State**: Shows whether test email can be sent or what's missing
+- **Loading State**: Displays progress while sending
+- **Success/Error Messages**: Provides immediate feedback on the test result
+
+##### Rate Limiting System
+
+To prevent abuse, the test email system includes built-in rate limiting:
+
+- **Default Limit**: 5 test emails per hour per user
+- **Per-User Tracking**: Each user has their own rate limit counter
+- **Automatic Reset**: Counters reset every hour
+- **Configurable**: Limit can be adjusted via `max_test_emails_per_hour` setting
+
+```php
+// Check current rate limit status
+$form = new BentoSettingsForm();
+$rate_limit = $form->checkTestEmailRateLimit();
+
+if (!$rate_limit['allowed']) {
+  $reset_time = date('H:i', $rate_limit['next_allowed']);
+  echo "Rate limit exceeded. Try again after {$reset_time}";
+}
+```
+
+##### AJAX Implementation
+
+The test email functionality uses AJAX for a seamless user experience:
+
+- **No Page Reload**: Tests are performed without refreshing the page
+- **Real-time Feedback**: Immediate success or error messages
+- **Loading States**: Visual indicators during processing
+- **CSRF Protection**: Secure token validation for all requests
+
+##### Error Handling and Feedback
+
+The system provides detailed feedback for various scenarios:
+
+**Success Messages:**
+- "Test email sent successfully!" - Email was delivered to Bento
+
+**Error Messages:**
+- "No default author email configured" - Author selection required
+- "API credentials not configured properly" - Missing or invalid credentials
+- "Rate limit exceeded" - Too many test emails sent recently
+- "Failed to send test email: [specific error]" - API or delivery issues
+
+##### Troubleshooting
+
+**Common Issues:**
+
+1. **Button Disabled/Grayed Out**:
+   - Check that API credentials are configured
+   - Ensure an author email is selected
+   - Verify you have the required permissions
+   - Check if rate limit has been exceeded
+
+2. **"API credentials not configured properly"**:
+   - Verify Site UUID format (32-character hex or UUID with hyphens)
+   - Check that Publishable Key and Secret Key are set
+   - Ensure Secret Key is stored securely (environment variable recommended)
+
+3. **"No default author email configured"**:
+   - Select a verified sender email from the dropdown
+   - Use "Refresh Authors" if the list is empty
+   - Verify the email is verified in your Bento account
+
+4. **Test Email Not Received**:
+   - Check spam/junk folders
+   - Verify the author email address is correct
+   - Review Drupal logs for detailed error messages
+   - Test with a different email address
+
+**Debugging:**
+
+```php
+// Enable detailed logging for troubleshooting
+$logger = \Drupal::logger('bento_sdk');
+
+// Check last error from BentoService
+$bento = \Drupal::service('bento.sdk');
+$last_error = $bento->getLastError();
+
+// Verify configuration status
+$is_configured = $bento->isConfigured();
+$config = \Drupal::config('bento_sdk.settings');
+$author = $config->get('default_author_email');
+```
+
+##### Security Considerations
+
+- **Permission-Based Access**: Only users with appropriate permissions can send test emails
+- **Rate Limiting**: Prevents abuse and excessive API usage
+- **CSRF Protection**: All AJAX requests include security tokens
+- **Secure Credentials**: Secret keys should be stored in environment variables
+- **Audit Trail**: All test email attempts are logged for security monitoring
+
+The test email functionality provides a reliable way to validate your Bento integration and troubleshoot configuration issues before deploying to production.
+
 ### Email Validation
 Validate a single email:
 ```php
