@@ -608,9 +608,10 @@ class BentoSettingsForm extends ConfigFormBase {
 
     // Webform Integration Settings
     $form['webform_settings'] = [
-      '#type' => 'fieldset',
+      '#type' => 'details',
       '#title' => $this->t('Webform Integration'),
       '#description' => $this->t('Configure how webform submissions are processed and sent to Bento. Event types are automatically generated from webform machine names (e.g., "contact_form" becomes "$contact_form").'),
+      '#open' => FALSE,
     ];
 
     if (!$can_edit_performance) {
