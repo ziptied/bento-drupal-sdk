@@ -113,9 +113,10 @@ class BentoSettingsForm extends ConfigFormBase {
     $can_edit_performance = $this->hasPerformanceEditAccess();
 
     $form['api_credentials'] = [
-      '#type' => 'fieldset',
+      '#type' => 'details',
       '#title' => $this->t('API Credentials'),
       '#description' => $this->t('Enter your Bento API credentials. You can find these in your Bento account settings.'),
+      '#open' => !$this->isConfigured(),
     ];
 
     if (!$can_edit_credentials) {
@@ -189,9 +190,10 @@ class BentoSettingsForm extends ConfigFormBase {
     ];
 
     $form['mail_settings'] = [
-      '#type' => 'fieldset',
+      '#type' => 'details',
       '#title' => $this->t('Mail Settings'),
       '#description' => $this->t('Configure how Drupal emails are handled through Bento.'),
+      '#open' => FALSE,
     ];
 
     if (!$can_edit_mail) {
@@ -355,9 +357,10 @@ class BentoSettingsForm extends ConfigFormBase {
 
     // Test Events section - for admin testing of event queueing
     $form['test_events'] = [
-      '#type' => 'fieldset',
+      '#type' => 'details',
       '#title' => $this->t('Test Events'),
       '#description' => $this->t('Queue sample events for testing Bento integration. Only administrators can access this section.'),
+      '#open' => FALSE,
       '#access' => $this->hasTestEventsAccess(),
     ];
 
@@ -408,206 +411,18 @@ class BentoSettingsForm extends ConfigFormBase {
       }
     }
 
-    $form['validation_settings'] = [
-      '#type' => 'fieldset',
-      '#title' => $this->t('Email Validation Settings'),
-      '#description' => $this->t('Configure email validation using Bento\'s experimental validation API.'),
-    ];
 
-    if (!$can_edit_validation) {
-      $form['validation_settings']['#description'] .= ' ' . $this->t('<strong>Note:</strong> You do not have permission to modify validation settings.');
-    }
 
-    $form['validation_settings']['enable_email_validation'] = [
-      '#type' => 'checkbox',
-      '#title' => $this->t('Enable email validation'),
-      '#description' => $this->t('When enabled, emails will be validated using Bento\'s API before processing. Note: This uses an experimental API endpoint.'),
-      '#default_value' => $config->get('enable_email_validation'),
-      '#disabled' => !$can_edit_validation,
-    ];
 
-    $form['validation_settings']['email_validation_cache_valid_duration'] = [
-      '#type' => 'number',
-      '#title' => $this->t('Cache duration for valid emails (seconds)'),
-      '#description' => $this->t('How long to cache valid email validation results. Default: 86400 (24 hours).'),
-      '#default_value' => $config->get('email_validation_cache_valid_duration') ?: 86400,
-      '#min' => 300,
-      '#max' => 604800,
-      '#disabled' => !$can_edit_validation,
-      '#states' => [
-        'visible' => [
-          ':input[name="enable_email_validation"]' => ['checked' => TRUE],
-        ],
-      ],
-    ];
 
-    $form['validation_settings']['email_validation_cache_invalid_duration'] = [
-      '#type' => 'number',
-      '#title' => $this->t('Cache duration for invalid emails (seconds)'),
-      '#description' => $this->t('How long to cache invalid email validation results. Default: 3600 (1 hour).'),
-      '#default_value' => $config->get('email_validation_cache_invalid_duration') ?: 3600,
-      '#min' => 300,
-      '#max' => 86400,
-      '#disabled' => !$can_edit_validation,
-      '#states' => [
-        'visible' => [
-          ':input[name="enable_email_validation"]' => ['checked' => TRUE],
-        ],
-      ],
-    ];
 
-    $form['rate_limiting'] = [
-      '#type' => 'fieldset',
-      '#title' => $this->t('Rate Limiting & Performance'),
-      '#description' => $this->t('Configure API rate limiting and circuit breaker settings to prevent service overload.'),
-    ];
-
-    if (!$can_edit_performance) {
-      $form['rate_limiting']['#description'] .= ' ' . $this->t('<strong>Note:</strong> You do not have permission to modify performance settings.');
-    }
-
-    $form['rate_limiting']['enable_rate_limiting'] = [
-      '#type' => 'checkbox',
-      '#title' => $this->t('Enable rate limiting'),
-      '#description' => $this->t('Limit the number of API requests to prevent quota exhaustion and service degradation.'),
-      '#default_value' => $config->get('enable_rate_limiting') ?? TRUE,
-      '#disabled' => !$can_edit_performance,
-    ];
-
-    $form['rate_limiting']['max_requests_per_minute'] = [
-      '#type' => 'number',
-      '#title' => $this->t('Maximum requests per minute'),
-      '#description' => $this->t('Maximum number of API requests allowed per minute. Default: 60.'),
-      '#default_value' => $config->get('max_requests_per_minute') ?: 60,
-      '#min' => 1,
-      '#max' => 300,
-      '#disabled' => !$can_edit_performance,
-      '#states' => [
-        'visible' => [
-          ':input[name="enable_rate_limiting"]' => ['checked' => TRUE],
-        ],
-      ],
-    ];
-
-    $form['rate_limiting']['max_requests_per_hour'] = [
-      '#type' => 'number',
-      '#title' => $this->t('Maximum requests per hour'),
-      '#description' => $this->t('Maximum number of API requests allowed per hour. Default: 1000.'),
-      '#default_value' => $config->get('max_requests_per_hour') ?: 1000,
-      '#min' => 10,
-      '#max' => 10000,
-      '#disabled' => !$can_edit_performance,
-      '#states' => [
-        'visible' => [
-          ':input[name="enable_rate_limiting"]' => ['checked' => TRUE],
-        ],
-      ],
-    ];
-
-    $form['rate_limiting']['max_test_emails_per_hour'] = [
-      '#type' => 'number',
-      '#title' => $this->t('Maximum test emails per hour'),
-      '#description' => $this->t('Maximum number of test emails allowed per user per hour. Default: 5.'),
-      '#default_value' => $config->get('max_test_emails_per_hour') ?: 5,
-      '#min' => 1,
-      '#max' => 20,
-      '#disabled' => !$can_edit_performance,
-      '#states' => [
-        'visible' => [
-          ':input[name="enable_rate_limiting"]' => ['checked' => TRUE],
-        ],
-      ],
-    ];
-
-    $form['rate_limiting']['enable_circuit_breaker'] = [
-      '#type' => 'checkbox',
-      '#title' => $this->t('Enable circuit breaker'),
-      '#description' => $this->t('Temporarily stop API requests after repeated failures to prevent cascading failures.'),
-      '#default_value' => $config->get('enable_circuit_breaker') ?? TRUE,
-      '#disabled' => !$can_edit_performance,
-    ];
-
-    $form['rate_limiting']['circuit_breaker_failure_threshold'] = [
-      '#type' => 'number',
-      '#title' => $this->t('Failure threshold'),
-      '#description' => $this->t('Number of consecutive failures before circuit breaker opens. Default: 5.'),
-      '#default_value' => $config->get('circuit_breaker_failure_threshold') ?: 5,
-      '#min' => 1,
-      '#max' => 20,
-      '#disabled' => !$can_edit_performance,
-      '#states' => [
-        'visible' => [
-          ':input[name="enable_circuit_breaker"]' => ['checked' => TRUE],
-        ],
-      ],
-    ];
-
-    $form['rate_limiting']['circuit_breaker_timeout'] = [
-      '#type' => 'number',
-      '#title' => $this->t('Circuit breaker timeout (seconds)'),
-      '#description' => $this->t('How long to wait before attempting to close the circuit breaker. Default: 300 (5 minutes).'),
-      '#default_value' => $config->get('circuit_breaker_timeout') ?: 300,
-      '#min' => 60,
-      '#max' => 3600,
-      '#disabled' => !$can_edit_performance,
-      '#states' => [
-        'visible' => [
-          ':input[name="enable_circuit_breaker"]' => ['checked' => TRUE],
-        ],
-      ],
-    ];
-
-    $form['security_settings'] = [
-      '#type' => 'fieldset',
-      '#title' => $this->t('Security Settings'),
-      '#description' => $this->t('Configure SSL verification, timeouts, and security headers for API requests.'),
-    ];
-
-    if (!$can_edit_performance) {
-      $form['security_settings']['#description'] .= ' ' . $this->t('<strong>Note:</strong> You do not have permission to modify security settings.');
-    }
-
-    $form['security_settings']['ssl_verification'] = [
-      '#type' => 'checkbox',
-      '#title' => $this->t('Enable SSL certificate verification'),
-      '#description' => $this->t('Verify SSL certificates for API requests. Disable only for development environments with self-signed certificates.'),
-      '#default_value' => $config->get('ssl_verification') ?? TRUE,
-      '#disabled' => !$can_edit_performance,
-    ];
-
-    $form['security_settings']['request_timeout'] = [
-      '#type' => 'number',
-      '#title' => $this->t('Request timeout (seconds)'),
-      '#description' => $this->t('Maximum time to wait for API responses. Default: 30 seconds.'),
-      '#default_value' => $config->get('request_timeout') ?: 30,
-      '#min' => 5,
-      '#max' => 300,
-      '#disabled' => !$can_edit_performance,
-    ];
-
-    $form['security_settings']['connection_timeout'] = [
-      '#type' => 'number',
-      '#title' => $this->t('Connection timeout (seconds)'),
-      '#description' => $this->t('Maximum time to wait for initial connection. Default: 10 seconds.'),
-      '#default_value' => $config->get('connection_timeout') ?: 10,
-      '#min' => 1,
-      '#max' => 60,
-      '#disabled' => !$can_edit_performance,
-    ];
-
-    $form['security_settings']['enable_request_id_tracking'] = [
-      '#type' => 'checkbox',
-      '#title' => $this->t('Enable request ID tracking'),
-      '#description' => $this->t('Add unique request IDs to API calls for audit trails and debugging.'),
-      '#default_value' => $config->get('enable_request_id_tracking') ?? TRUE,
-      '#disabled' => !$can_edit_performance,
-    ];
 
     // Webform Integration Settings
     $form['webform_settings'] = [
-      '#type' => 'fieldset',
+      '#type' => 'details',
       '#title' => $this->t('Webform Integration'),
       '#description' => $this->t('Configure how webform submissions are processed and sent to Bento. Event types are automatically generated from webform machine names (e.g., "contact_form" becomes "$contact_form").'),
+      '#open' => FALSE,
     ];
 
     if (!$can_edit_performance) {
@@ -990,7 +805,7 @@ class BentoSettingsForm extends ConfigFormBase {
     }
 
       // Track data enrichment setting changes.
-      $enrichment_fields = ['include_product_details', 'include_customer_context', 'include_order_context', 'include_product_images'];
+      $enrichment_fields = ['include_product_details', 'include_customer_context', 'include_order_context'];
       foreach ($enrichment_fields as $field) {
         $old_value = $config->get("commerce_integration.data_enrichment.{$field}");
         $new_value = $form_state->getValue($field);
@@ -1033,7 +848,7 @@ class BentoSettingsForm extends ConfigFormBase {
       '#description' => $commerce_available 
         ? $this->t('Configure automatic tracking of Commerce events.')
         : $this->t('Drupal Commerce module is not installed. Install Commerce to enable eCommerce tracking.'),
-      '#open' => $config->get('commerce_integration.enabled') ?? FALSE,
+      '#open' => FALSE,
       '#access' => TRUE, // Always show section for visibility
     ];
 
@@ -1108,58 +923,13 @@ class BentoSettingsForm extends ConfigFormBase {
       $form['commerce_integration']['event_types'][$event_key] = [
         '#type' => 'checkbox',
         '#title' => $event_info['title'],
-        '#default_value' => $config->get("commerce_integration.event_types.{$event_key}") ?? TRUE,
+        '#default_value' => $config->get("commerce_integration.event_types.{$event_key}") ?? ($event_key === 'cart_abandoned' ? FALSE : TRUE),
         '#description' => $event_info['description'],
         '#disabled' => !$can_edit_performance,
       ];
     }
 
-    // Cart abandonment settings
-    $form['commerce_integration']['cart_abandonment'] = [
-      '#type' => 'details',
-      '#title' => $this->t('Cart Abandonment Settings'),
-      '#description' => $this->t('Configure how cart abandonment is detected and tracked.'),
-      '#open' => FALSE,
-      '#states' => [
-        'visible' => [
-          ':input[name="enabled"]' => ['checked' => TRUE],
-          ':input[name="cart_abandoned"]' => ['checked' => TRUE],
-        ],
-      ],
-    ];
 
-    $form['commerce_integration']['cart_abandonment']['threshold_hours'] = [
-      '#type' => 'number',
-      '#title' => $this->t('Abandonment Threshold (hours)'),
-      '#default_value' => $config->get('commerce_integration.cart_abandonment.threshold_hours') ?? 24,
-      '#description' => $this->t('Number of hours of inactivity before a cart is considered abandoned.'),
-      '#min' => 1,
-      '#max' => 720, // 30 days
-      '#step' => 1,
-      '#disabled' => !$can_edit_performance,
-    ];
-
-    $form['commerce_integration']['cart_abandonment']['check_interval'] = [
-      '#type' => 'number',
-      '#title' => $this->t('Check Interval (minutes)'),
-      '#default_value' => $config->get('commerce_integration.cart_abandonment.check_interval') ?? 60,
-      '#description' => $this->t('How often to check for abandoned carts during cron runs.'),
-      '#min' => 15,
-      '#max' => 1440, // 24 hours
-      '#step' => 15,
-      '#disabled' => !$can_edit_performance,
-    ];
-
-    $form['commerce_integration']['cart_abandonment']['batch_size'] = [
-      '#type' => 'number',
-      '#title' => $this->t('Batch Size'),
-      '#default_value' => $config->get('commerce_integration.cart_abandonment.batch_size') ?? 50,
-      '#description' => $this->t('Number of abandoned carts to process in each batch. Larger batches improve performance but may use more memory.'),
-      '#min' => 10,
-      '#max' => 500,
-      '#step' => 10,
-      '#disabled' => !$can_edit_performance,
-    ];
 
     // Data enrichment settings
     $form['commerce_integration']['data_enrichment'] = [
@@ -1187,16 +957,13 @@ class BentoSettingsForm extends ConfigFormBase {
         'title' => $this->t('Include Order Context'),
         'description' => $this->t('Include shipping, payment, and discount information.'),
       ],
-      'include_product_images' => [
-        'title' => $this->t('Include Product Images'),
-        'description' => $this->t('Include product image URLs (may increase event size).'),
-      ],
+
     ];
 
     foreach ($enrichment_options as $option_key => $option_info) {
       $default_value = $config->get("commerce_integration.data_enrichment.{$option_key}");
       if ($default_value === NULL) {
-        $default_value = $option_key !== 'include_product_images'; // Default to true except for images
+        $default_value = TRUE; // All remaining options default to true
       }
 
       $form['commerce_integration']['data_enrichment'][$option_key] = [
