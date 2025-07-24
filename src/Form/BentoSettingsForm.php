@@ -1037,7 +1037,7 @@ class BentoSettingsForm extends ConfigFormBase {
       '#description' => $commerce_available 
         ? $this->t('Configure automatic tracking of Commerce events.')
         : $this->t('Drupal Commerce module is not installed. Install Commerce to enable eCommerce tracking.'),
-      '#open' => $config->get('commerce_integration.enabled') ?? FALSE,
+      '#open' => FALSE,
       '#access' => TRUE, // Always show section for visibility
     ];
 
