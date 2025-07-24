@@ -113,9 +113,10 @@ class BentoSettingsForm extends ConfigFormBase {
     $can_edit_performance = $this->hasPerformanceEditAccess();
 
     $form['api_credentials'] = [
-      '#type' => 'fieldset',
+      '#type' => 'details',
       '#title' => $this->t('API Credentials'),
       '#description' => $this->t('Enter your Bento API credentials. You can find these in your Bento account settings.'),
+      '#open' => FALSE,
     ];
 
     if (!$can_edit_credentials) {
