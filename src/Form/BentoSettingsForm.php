@@ -116,7 +116,7 @@ class BentoSettingsForm extends ConfigFormBase {
       '#type' => 'details',
       '#title' => $this->t('API Credentials'),
       '#description' => $this->t('Enter your Bento API credentials. You can find these in your Bento account settings.'),
-      '#open' => FALSE,
+      '#open' => !$this->isConfigured(),
     ];
 
     if (!$can_edit_credentials) {
