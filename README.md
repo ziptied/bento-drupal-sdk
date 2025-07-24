@@ -141,6 +141,96 @@ $bento->sendTransactionalEmail([
 - **Flexible Email Delivery:** This module uses Drupal's built-in, flexible email system. You can choose to send all your site's emails through Bento with a simple setting in the admin panel.
 - **Automatic Fallback:** If for any reason Bento can't send an email (for example, if your credentials are missing or there's a temporary issue), the system will automatically use Drupal's regular email method instead. This means your emails will always be sent, with no extra work needed from you.
 
+#### Author Selection
+
+The Bento SDK provides an intuitive author selection system for managing verified sender email addresses for transactional emails.
+
+##### How It Works
+
+When you enable email routing through Bento, you must select a verified sender email address (author) from your Bento account. The system automatically fetches and caches the list of available authors from your Bento account.
+
+```php
+// Fetch available authors programmatically
+$bento = \Drupal::service('bento.sdk');
+$authors = $bento->fetchAuthors();
+// Returns: ['verified@yourdomain.com', 'noreply@yourdomain.com', ...]
+
+// Send email with specific author
+$bento->sendTransactionalEmail([
+  'to' => 'user@example.com',
+  'from' => 'verified@yourdomain.com', // Must be in authors list
+  'subject' => 'Welcome!',
+  'html_body' => '<p>Hello!</p>'
+]);
+```
+
+##### Configuration
+
+1. **Enable Email Routing**: Go to **Configuration > Bento > Settings** and enable "Route Drupal emails through Bento"
+2. **Select Default Author**: Choose a verified sender email from the dropdown list
+3. **Refresh Authors**: Use the "Refresh Authors" button to update the list with newly verified emails
+
+##### Author Management Features
+
+- **Automatic Fetching**: Authors are automatically loaded from your Bento account via API
+- **Smart Caching**: Author lists are cached for 1 hour to improve performance
+- **AJAX Refresh**: Update the authors list without page reload using the refresh button
+- **Real-time Validation**: Selected authors are validated against the current list from Bento
+- **Cache Invalidation**: Author cache is automatically cleared when API credentials change
+
+##### Fallback Chain
+
+The system uses a smart fallback chain for sender addresses:
+
+1. **Explicit From Address**: If specified in the email call
+2. **Default Author**: The author selected in configuration
+3. **System Fallback**: Drupal's default site email if Bento is unavailable
+
+##### Security and Validation
+
+- **Email Verification**: Only verified sender addresses from your Bento account can be used
+- **Real-time Validation**: Selected authors are validated against the fetched list
+- **Secure API Calls**: Author fetching uses your secure API credentials
+- **Permission Control**: Only users with appropriate permissions can modify author settings
+
+##### Troubleshooting
+
+**Common Issues:**
+
+1. **Empty Authors List**: 
+   - Check that your API credentials are correct
+   - Verify that you have verified sender addresses in your Bento account
+   - Use the "Refresh Authors" button to reload the list
+
+2. **Selected Author Not Available**: 
+   - The author may have been removed from your Bento account
+   - Refresh the authors list to get the current available options
+   - Check that the email address is still verified in Bento
+
+3. **Authors Not Loading**:
+   - Verify API connectivity and credentials
+   - Check Drupal logs for specific error messages
+   - Ensure your Bento account has the necessary permissions
+
+**Debugging:**
+
+```php
+// Check if authors can be fetched
+$bento = \Drupal::service('bento.sdk');
+if ($bento->isConfigured()) {
+  $authors = $bento->fetchAuthors();
+  if (empty($authors)) {
+    // Check logs for API errors
+    // Verify Bento account has verified senders
+  }
+}
+
+// Clear authors cache if needed
+$bento->clearAuthorsCache();
+```
+
+The author selection system ensures that all emails sent through Bento use verified sender addresses, maintaining deliverability and compliance with email authentication standards.
+
 ### Email Validation
 Validate a single email:
 ```php
