@@ -200,11 +200,20 @@ class CartAbandonmentService {
     $batch_size = $config->get('commerce_integration.cart_abandonment.batch_size') ?? self::DEFAULT_BATCH_SIZE;
 
     // Process abandoned carts
-    $this->processAbandonedCartsBatch($threshold_timestamp, $batch_size);
+    try {
+      $this->processAbandonedCartsBatch($threshold_timestamp, $batch_size);
+      
+      $this->logger->debug('Cart abandonment processing completed successfully');
+    } catch (\Exception $e) {
+      $this->logger->error('Cart abandonment processing failed: @error', [
+        '@error' => $this->sanitizeErrorMessage($e->getMessage()),
+      ]);
+    }
     
-    // Update the last run timestamp after successful processing
+    // Update the last run timestamp regardless of processing success/failure
+    // This ensures the check interval is respected on subsequent runs
     $this->state->set('bento_sdk.cart_abandonment.last_run', $current_time);
-    $this->logger->debug('Cart abandonment processing completed. Updated last run timestamp to: @timestamp', [
+    $this->logger->debug('Updated last run timestamp to: @timestamp', [
       '@timestamp' => $current_time,
     ]);
   }

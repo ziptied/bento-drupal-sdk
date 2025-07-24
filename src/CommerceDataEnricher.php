@@ -7,6 +7,7 @@ use Drupal\commerce_order\Entity\OrderItemInterface;
 use Drupal\commerce_product\Entity\ProductInterface;
 use Drupal\commerce_product\Entity\ProductVariationInterface;
 use Drupal\Core\Entity\EntityTypeManagerInterface;
+use Drupal\Core\File\FileUrlGeneratorInterface;
 use Drupal\Core\Url;
 use Psr\Log\LoggerInterface;
 
@@ -33,19 +34,30 @@ class CommerceDataEnricher {
   private LoggerInterface $logger;
 
   /**
+   * The file URL generator service.
+   *
+   * @var \Drupal\Core\File\FileUrlGeneratorInterface
+   */
+  private FileUrlGeneratorInterface $fileUrlGenerator;
+
+  /**
    * Constructs a new CommerceDataEnricher.
    *
    * @param \Drupal\Core\Entity\EntityTypeManagerInterface $entity_type_manager
    *   The entity type manager.
    * @param \Psr\Log\LoggerInterface $logger
    *   The logger service.
+   * @param \Drupal\Core\File\FileUrlGeneratorInterface $file_url_generator
+   *   The file URL generator service.
    */
   public function __construct(
     EntityTypeManagerInterface $entity_type_manager,
-    LoggerInterface $logger
+    LoggerInterface $logger,
+    FileUrlGeneratorInterface $file_url_generator
   ) {
     $this->entityTypeManager = $entity_type_manager;
     $this->logger = $logger;
+    $this->fileUrlGenerator = $file_url_generator;
 
     // Check if Commerce module is available
     if (!$this->isCommerceModuleAvailable()) {
@@ -226,7 +238,7 @@ class CommerceDataEnricher {
     if ($variation->hasField('field_image') && !$variation->get('field_image')->isEmpty()) {
       foreach ($variation->get('field_image')->referencedEntities() as $file) {
         $images[] = [
-          'url' => file_create_url($file->getFileUri()),
+          'url' => $this->fileUrlGenerator->generateAbsoluteString($file->getFileUri()),
           'alt' => $variation->get('field_image')->alt ?? '',
           'title' => $variation->get('field_image')->title ?? '',
         ];
@@ -237,7 +249,7 @@ class CommerceDataEnricher {
     if (empty($images) && $product->hasField('field_image') && !$product->get('field_image')->isEmpty()) {
       foreach ($product->get('field_image')->referencedEntities() as $file) {
         $images[] = [
-          'url' => file_create_url($file->getFileUri()),
+          'url' => $this->fileUrlGenerator->generateAbsoluteString($file->getFileUri()),
           'alt' => $product->get('field_image')->alt ?? '',
           'title' => $product->get('field_image')->title ?? '',
         ];
@@ -584,30 +596,22 @@ class CommerceDataEnricher {
     }
 
     $order_storage = $this->entityTypeManager->getStorage('commerce_order');
-    $query = $order_storage->getQuery()
+    
+    // Use aggregation query for better performance
+    $query = $order_storage->getAggregateQuery()
       ->condition('uid', $customer->id())
       ->condition('state', 'completed')
+      ->aggregate('total_price.number', 'SUM')
       ->accessCheck(FALSE);
-
-    $order_ids = $query->execute();
-    if (empty($order_ids)) {
-      return NULL;
-    }
-
-    // Load all completed orders for the customer
-    $orders = $order_storage->loadMultiple($order_ids);
     
-    $total_value = 0.0;
-    foreach ($orders as $order) {
-      if ($order instanceof \Drupal\commerce_order\Entity\OrderInterface) {
-        $total_price = $order->getTotalPrice();
-        if ($total_price && method_exists($total_price, 'getNumber')) {
-          $total_value += $total_price->getNumber();
-        }
-      }
+    $result = $query->execute();
+    
+    if (!empty($result) && isset($result[0]['total_price_number_sum'])) {
+      $total = (float) $result[0]['total_price_number_sum'];
+      return $total > 0 ? $total : NULL;
     }
-
-    return $total_value > 0 ? $total_value : NULL;
+    
+    return NULL;
   }
 
   /**
