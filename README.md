@@ -23,6 +23,7 @@ Table of contents
     * [Email Validation](#email-validation)
     * [Tag & Field Management](#tag--field-management)
 * [Events Queue and Processing](#events-queue-and-processing)
+* [Webform Integration](#webform-integration)
 * [Things to Know](#things-to-know)
 * [Support](#support)
 * [Contributing](#contributing)
@@ -539,6 +540,250 @@ The queue system logs detailed information about:
 - Retry attempts and delays
 - Dead letter queue movements
 - Performance metrics and timing
+
+---
+
+## Webform Integration
+
+The Bento SDK provides seamless integration with Drupal Webform module, automatically capturing form submissions and sending them to Bento as events for customer engagement and marketing automation.
+
+### How It Works
+
+When a webform is submitted on your site, the Bento SDK automatically processes the submission and creates a corresponding event in Bento. This happens transparently without requiring any additional configuration for individual forms.
+
+```php
+// This happens automatically when any webform is submitted
+// No additional code required - the integration uses Drupal hooks
+
+// Example of the automatic event generation:
+// Webform ID: "contact_form" → Event Type: "$contact_form"
+// Webform ID: "newsletter_signup" → Event Type: "$newsletter_signup"
+```
+
+### Automatic Event Generation
+
+The system automatically generates Bento events from webform submissions using the following process:
+
+1. **Hook Integration**: Uses `hook_webform_submission_insert()` to capture submissions
+2. **Event Type Generation**: Converts webform machine names to Bento event types
+3. **Email Extraction**: Automatically finds and validates email addresses in form data
+4. **Field Mapping**: Maps common fields and preserves all form data
+5. **Queue Processing**: Events are queued for background processing
+
+#### Event Type Naming
+
+Webform machine names are automatically converted to Bento-compatible event types:
+
+- `contact_form` → `$contact_form`
+- `newsletter_signup` → `$newsletter_signup`
+- `product_inquiry` → `$product_inquiry`
+- `support-request` → `$support_request`
+
+The system sanitizes names by converting to lowercase, replacing special characters with underscores, and adding the required `$` prefix for Bento system events.
+
+### Email Extraction and Validation
+
+The integration automatically detects email addresses using common field names:
+
+```php
+// Automatically searches these field names (in order):
+$email_fields = ['email', 'mail', 'email_address', 'user_email'];
+
+// Example webform data processing:
+$form_data = [
+  'email' => 'user@example.com',        // ✓ Found and validated
+  'first_name' => 'John',               // ✓ Mapped to Bento fields
+  'last_name' => 'Doe',                 // ✓ Mapped to Bento fields
+  'message' => 'Hello world',           // ✓ Preserved in event details
+  'phone' => '555-1234',                // ✓ Preserved in event details
+];
+
+// Results in this Bento event:
+$event = [
+  'type' => '$contact_form',
+  'email' => 'user@example.com',
+  'fields' => [
+    'first_name' => 'John',
+    'last_name' => 'Doe',
+  ],
+  'details' => [
+    'webform_id' => 'contact_form',
+    'form_data' => [
+      'message' => 'Hello world',
+      'phone' => '555-1234',
+    ],
+  ],
+];
+```
+
+**Email Validation Features:**
+- Validates email format using `filter_var(FILTER_VALIDATE_EMAIL)`
+- Skips submissions without valid email addresses
+- Logs warnings for forms without email fields
+- Supports multiple email field naming conventions
+
+### Field Mapping and Data Structure
+
+The integration provides intelligent field mapping while preserving all form data:
+
+#### Automatic Field Mapping
+
+- **`first_name`** → Mapped to Bento subscriber fields
+- **`last_name`** → Mapped to Bento subscriber fields
+- **Email fields** → Used as the primary subscriber identifier
+
+#### Data Preservation
+
+All other form fields are preserved in the event details:
+
+```php
+// Example comprehensive form data
+$webform_data = [
+  'email' => 'customer@example.com',
+  'first_name' => 'Jane',
+  'last_name' => 'Smith',
+  'company' => 'Acme Corp',
+  'phone' => '555-0123',
+  'message' => 'Interested in your services',
+  'budget' => '$10,000-$50,000',
+  'source' => 'Google Search',
+];
+
+// Resulting Bento event structure
+$bento_event = [
+  'type' => '$contact_form',
+  'email' => 'customer@example.com',
+  'fields' => [
+    'first_name' => 'Jane',
+    'last_name' => 'Smith',
+  ],
+  'details' => [
+    'webform_id' => 'contact_form',
+    'form_data' => [
+      'company' => 'Acme Corp',
+      'phone' => '555-0123',
+      'message' => 'Interested in your services',
+      'budget' => '$10,000-$50,000',
+      'source' => 'Google Search',
+    ],
+  ],
+];
+```
+
+### Configuration
+
+#### Enable Webform Integration
+
+1. **Navigate to Settings**: Go to **Configuration > Bento > Settings** (`/admin/config/bento/settings`)
+2. **Configure API Credentials**: Ensure Site UUID, Publishable Key, and Secret Key are set
+3. **Enable Integration**: The webform integration is enabled by default (`enable_webform_integration: true`)
+
+#### Configuration Options
+
+```yaml
+# In bento_sdk.settings.yml
+enable_webform_integration: true  # Enable/disable webform processing
+```
+
+The integration works automatically once enabled - no per-form configuration is required.
+
+### Testing Webform Integration
+
+The admin interface includes a test webform event feature:
+
+1. **Access Test Function**: Go to **Configuration > Bento > Settings**
+2. **Test Events Section**: Expand the "Test Events" section
+3. **Send Test Webform Event**: Click the button to queue a sample webform event
+
+```php
+// Example test webform event data
+$test_event = [
+  'type' => '$test_webform',
+  'email' => 'current_user@example.com', // Uses current user's email
+  'fields' => [
+    'first_name' => 'Test',
+    'last_name' => 'User',
+  ],
+  'details' => [
+    'webform_id' => 'test_webform',
+    'form_data' => [
+      'message' => 'This is a test webform submission',
+      'source' => 'Admin Test',
+    ],
+  ],
+];
+```
+
+### Custom Implementation
+
+For advanced use cases, you can process webform submissions programmatically:
+
+```php
+// Process a webform submission manually
+$bento = \Drupal::service('bento.sdk');
+$success = $bento->processWebformSubmission($webform_submission);
+
+// Create custom webform events
+$custom_event = [
+  'type' => '$custom_form_event',
+  'email' => 'user@example.com',
+  'fields' => ['first_name' => 'John'],
+  'details' => [
+    'webform_id' => 'custom_form',
+    'form_data' => ['custom_field' => 'custom_value'],
+  ],
+];
+$bento->sendEvent($custom_event);
+
+// Check if webform integration is enabled
+$config = \Drupal::config('bento_sdk.settings');
+$enabled = $config->get('enable_webform_integration');
+```
+
+### Performance Considerations
+
+- **Asynchronous Processing**: Webform events are queued for background processing
+- **Non-blocking Submissions**: Form submissions are not delayed by API calls
+- **Error Handling**: Failed events are retried automatically with exponential backoff
+- **Logging**: All webform processing is logged for monitoring and debugging
+
+### Troubleshooting
+
+#### Common Issues
+
+1. **Events Not Being Created**:
+   - Check that webform integration is enabled in settings
+   - Verify Bento SDK is properly configured with API credentials
+   - Ensure webforms contain valid email fields
+
+2. **Missing Email Addresses**:
+   - Add an email field to your webform using standard field names
+   - Supported field names: `email`, `mail`, `email_address`, `user_email`
+   - Check Drupal logs for "no valid email found" warnings
+
+3. **Event Type Issues**:
+   - Webform machine names are automatically sanitized
+   - Special characters are converted to underscores
+   - Event types always start with `$` prefix
+
+#### Debugging
+
+```php
+// Check webform integration status
+$bento = \Drupal::service('bento.sdk');
+$is_configured = $bento->isConfigured();
+$config = \Drupal::config('bento_sdk.settings');
+$integration_enabled = $config->get('enable_webform_integration');
+
+// Monitor webform processing in logs
+// Look for 'bento_sdk' channel messages in Drupal logs
+
+// Test email extraction manually
+$form_data = ['email' => 'test@example.com', 'name' => 'Test User'];
+$email = $bento->extractEmail($form_data); // Private method - for reference only
+```
+
+The webform integration provides a powerful way to automatically capture lead information and customer interactions, feeding them directly into your Bento marketing automation workflows.
 
 ---
 
