@@ -1118,52 +1118,7 @@ class BentoSettingsForm extends ConfigFormBase {
       ];
     }
 
-    // Cart abandonment settings
-    $form['commerce_integration']['cart_abandonment'] = [
-      '#type' => 'details',
-      '#title' => $this->t('Cart Abandonment Settings'),
-      '#description' => $this->t('Configure how cart abandonment is detected and tracked.'),
-      '#open' => FALSE,
-      '#states' => [
-        'visible' => [
-          ':input[name="enabled"]' => ['checked' => TRUE],
-          ':input[name="cart_abandoned"]' => ['checked' => TRUE],
-        ],
-      ],
-    ];
 
-    $form['commerce_integration']['cart_abandonment']['threshold_hours'] = [
-      '#type' => 'number',
-      '#title' => $this->t('Abandonment Threshold (hours)'),
-      '#default_value' => $config->get('commerce_integration.cart_abandonment.threshold_hours') ?? 24,
-      '#description' => $this->t('Number of hours of inactivity before a cart is considered abandoned.'),
-      '#min' => 1,
-      '#max' => 720, // 30 days
-      '#step' => 1,
-      '#disabled' => !$can_edit_performance,
-    ];
-
-    $form['commerce_integration']['cart_abandonment']['check_interval'] = [
-      '#type' => 'number',
-      '#title' => $this->t('Check Interval (minutes)'),
-      '#default_value' => $config->get('commerce_integration.cart_abandonment.check_interval') ?? 60,
-      '#description' => $this->t('How often to check for abandoned carts during cron runs.'),
-      '#min' => 15,
-      '#max' => 1440, // 24 hours
-      '#step' => 15,
-      '#disabled' => !$can_edit_performance,
-    ];
-
-    $form['commerce_integration']['cart_abandonment']['batch_size'] = [
-      '#type' => 'number',
-      '#title' => $this->t('Batch Size'),
-      '#default_value' => $config->get('commerce_integration.cart_abandonment.batch_size') ?? 50,
-      '#description' => $this->t('Number of abandoned carts to process in each batch. Larger batches improve performance but may use more memory.'),
-      '#min' => 10,
-      '#max' => 500,
-      '#step' => 10,
-      '#disabled' => !$can_edit_performance,
-    ];
 
     // Data enrichment settings
     $form['commerce_integration']['data_enrichment'] = [
