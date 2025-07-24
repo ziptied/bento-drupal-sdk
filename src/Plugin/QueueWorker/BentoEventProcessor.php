@@ -125,7 +125,7 @@ class BentoEventProcessor extends QueueWorkerBase implements ContainerFactoryPlu
     if (!$this->isValidQueueItem($data)) {
       // Log the invalid item and discard it without throwing an exception
       $this->logger->error('Discarding invalid queue item: @item', [
-        '@item' => print_r($data, TRUE),
+        '@item' => json_encode($data),
       ]);
       return;
     }

@@ -19,3 +19,41 @@ services:
   logger.channel.bento_sdk:
     parent: logger.channel_base
     arguments: ['bento_sdk']
+
+  # Commerce integration services (loaded conditionally)
+  bento_sdk.commerce_email_extractor:
+    class: Drupal\bento_sdk\CommerceEmailExtractor
+    arguments: 
+      - '@config.factory'
+      - '@entity_type.manager'
+      - '@logger.channel.bento_sdk'
+
+  bento_sdk.commerce_data_enricher:
+    class: Drupal\bento_sdk\CommerceDataEnricher
+    arguments: 
+      - '@entity_type.manager'
+      - '@logger.channel.bento_sdk'
+      - '@file_url_generator'
+
+  bento_sdk.commerce_processor:
+    class: Drupal\bento_sdk\CommerceEventProcessor
+    arguments: ['@bento.sdk', '@config.factory', '@logger.channel.bento_sdk', '@bento_sdk.commerce_email_extractor', '@bento_sdk.commerce_data_enricher']
+
+  bento_sdk.commerce_event_subscriber:
+    class: Drupal\bento_sdk\CommerceEventSubscriber
+    arguments: ['@bento_sdk.commerce_processor', '@logger.channel.bento_sdk']
+    tags:
+      - { name: event_subscriber }
+
+  bento_sdk.cart_abandonment:
+    class: Drupal\bento_sdk\CartAbandonmentService
+    arguments: 
+      - '@config.factory'
+      - '@entity_type.manager'
+      - '@database'
+      - '@state'
+      - '@logger.channel.bento_sdk'
+      - '@bento.sdk'
+      - '@bento_sdk.commerce_email_extractor'
+
+

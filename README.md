@@ -199,3 +199,84 @@ We welcome contributions! Please see our [contributing guidelines](CODE_OF_CONDU
 ## License
 
 The Bento SDK for Drupal is available as open source under the terms of the [GPL-2.0-or-later license](LICENSE).
+
+---
+
+## Commerce Cart Event Flow
+
+The Bento SDK automatically tracks Drupal Commerce cart events and sends them to Bento for customer engagement and marketing automation.
+
+```mermaid
+flowchart TD
+    A[User adds item to cart] --> B[Commerce fires CartEvents::CART_ENTITY_ADD]
+    B --> C[CommerceEventSubscriber::onCartItemAdd]
+    C --> D{Is Commerce module available?}
+    D -->|No| E[Skip event processing]
+    D -->|Yes| F{Is Commerce integration enabled?}
+    F -->|No| E
+    F -->|Yes| G{Is cart tracking enabled?}
+    G -->|No| E
+    G -->|Yes| H[CommerceEventProcessor::processCartEvent]
+    
+    H --> I[Extract email from cart]
+    I --> J{Valid email found?}
+    J -->|No| K[Log: No valid email, skip event]
+    J -->|Yes| L[Enrich data with CommerceDataEnricher]
+    
+    L --> M[Build event data structure]
+    M --> N{Is this a new cart?}
+    N -->|Yes| O[Set event type: $cart_created]
+    N -->|No| P[Set event type: $cart_updated]
+    
+    O --> Q[BentoService::sendEvent]
+    P --> Q
+    
+    Q --> R[Queue event for processing]
+    R --> S[BentoEventProcessor processes queue]
+    S --> T[Send event to Bento API]
+    
+    T --> U{API call successful?}
+    U -->|Yes| V[Log: Event sent successfully]
+    U -->|No| W[Log: Failed to send event]
+    
+    W --> X[Event remains in queue for retry]
+    X --> S
+    
+    V --> Y[Event appears in Bento dashboard]
+    
+    %% Cart abandonment flow
+    Z[Cron runs] --> AA[CartAbandonmentService::processAbandonedCarts]
+    AA --> BB{Find abandoned carts?}
+    BB -->|Yes| CC[Send $cart_abandoned events]
+    BB -->|No| DD[No action needed]
+    CC --> Y
+    
+    style A fill:#e1f5fe
+    style Y fill:#c8e6c9
+    style E fill:#ffcdd2
+    style K fill:#ffcdd2
+    style W fill:#ffcdd2
+```
+
+### Event Types Sent
+
+- **`$cart_created`** - When the first item is added to a new cart
+- **`$cart_updated`** - When additional items are added or cart is modified  
+- **`$cart_abandoned`** - When a cart is abandoned (processed via cron)
+
+### Configuration Required
+
+1. **Enable Commerce Integration** at `/admin/config/bento/settings`
+2. **Configure Bento API credentials** (Site UUID, Publishable Key, Secret Key)
+3. **Enable cart event tracking** (Cart Created, Cart Updated events)
+
+### Event Data Structure
+
+Cart events include comprehensive data:
+- Cart ID and total value
+- Customer email and information
+- Product details (SKU, title, quantity, price)
+- Cart creation and modification timestamps
+- Cart recovery URL for abandoned carts
+
+For detailed verification and testing instructions, see [CART_EVENT_VERIFICATION.md](CART_EVENT_VERIFICATION.md).

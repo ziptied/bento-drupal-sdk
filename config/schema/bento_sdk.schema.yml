@@ -85,3 +85,64 @@ bento_sdk.settings:
         dead_letter_retention:
           type: integer
           label: 'Dead letter queue retention period in seconds'
+    commerce_integration:
+      type: mapping
+      label: 'Commerce Integration Settings'
+      mapping:
+        enabled:
+          type: boolean
+          label: 'Enable Commerce Integration'
+        event_types:
+          type: mapping
+          label: 'Event Type Settings'
+          mapping:
+            cart_created:
+              type: boolean
+              label: 'Track Cart Created Events'
+            cart_updated:
+              type: boolean
+              label: 'Track Cart Updated Events'
+            purchase:
+              type: boolean
+              label: 'Track Purchase Events'
+            order_paid:
+              type: boolean
+              label: 'Track Order Paid Events'
+            order_fulfilled:
+              type: boolean
+              label: 'Track Order Fulfilled Events'
+            order_cancelled:
+              type: boolean
+              label: 'Track Order Cancelled Events'
+            cart_abandoned:
+              type: boolean
+              label: 'Track Cart Abandoned Events'
+        cart_abandonment:
+          type: mapping
+          label: 'Cart Abandonment Settings'
+          mapping:
+            threshold_hours:
+              type: integer
+              label: 'Abandonment Threshold (hours)'
+            check_interval:
+              type: integer
+              label: 'Check Interval (minutes)'
+            batch_size:
+              type: integer
+              label: 'Batch Size for Processing'
+        data_enrichment:
+          type: mapping
+          label: 'Data Enrichment Settings'
+          mapping:
+            include_product_details:
+              type: boolean
+              label: 'Include Product Details'
+            include_customer_context:
+              type: boolean
+              label: 'Include Customer Context'
+            include_order_context:
+              type: boolean
+              label: 'Include Order Context'
+            include_product_images:
+              type: boolean
+              label: 'Include Product Images'

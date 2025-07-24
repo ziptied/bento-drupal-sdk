@@ -52,10 +52,8 @@ class TestEmailController extends ControllerBase {
     $publishable_key = $config->get('publishable_key');
     $default_author = $config->get('default_author_email');
 
-    // Use BentoService to get the secret key (centralized logic)
-    $secret_key = (new \ReflectionClass($this->bentoService))->getMethod('getSecretKey');
-    $secret_key->setAccessible(true);
-    $secret_key = $secret_key->invoke($this->bentoService);
+    // Check if BentoService is configured (includes secret key check)
+    $is_configured = $this->bentoService->isConfigured();
 
     if (empty($default_author)) {
       return new JsonResponse([
@@ -64,7 +62,7 @@ class TestEmailController extends ControllerBase {
       ]);
     }
     
-    if (empty($publishable_key) || empty($secret_key)) {
+    if (empty($publishable_key) || !$is_configured) {
       return new JsonResponse([
         'success' => false,
         'message' => 'API credentials not configured properly',
@@ -81,16 +79,6 @@ class TestEmailController extends ControllerBase {
         'text_body' => 'This is a test email from Bento SDK.',
       ];
       
-      // Check if BentoService is configured before attempting to send
-      $is_configured = $this->bentoService->isConfigured();
-      
-      if (!$is_configured) {
-        return new JsonResponse([
-          'success' => false,
-          'message' => 'BentoService is not properly configured',
-        ]);
-      }
-      
       $success = $this->bentoService->sendTransactionalEmail($email_data);
       
       if ($success) {
@@ -106,6 +94,66 @@ class TestEmailController extends ControllerBase {
         return new JsonResponse([
           'success' => false,
           'message' => 'Failed to send test email: ' . ($last_error ?: 'Unknown error'),
+        ]);
+      }
+      
+    } catch (\Exception $e) {
+      return new JsonResponse([
+        'success' => false,
+        'message' => 'Error: ' . $e->getMessage(),
+      ]);
+    }
+  }
+
+  /**
+   * Handles test webform event sending via AJAX.
+   *
+   * @return \Symfony\Component\HttpFoundation\JsonResponse
+   *   JSON response with success/error status.
+   */
+  public function sendTestWebformEvent() {
+    $config = $this->configFactory->get('bento_sdk.settings');
+    
+    // Check if webform integration is enabled
+    if (!$config->get('enable_webform_integration')) {
+      return new JsonResponse([
+        'success' => false,
+        'message' => 'Webform integration is disabled.',
+      ]);
+    }
+    
+    // Check if Bento is configured
+    if (!$this->bentoService->isConfigured()) {
+      return new JsonResponse([
+        'success' => false,
+        'message' => 'Bento SDK is not properly configured.',
+      ]);
+    }
+    
+    // Get current user's email for the test event
+    $current_user = \Drupal::currentUser();
+    $user_email = $current_user->getEmail();
+    if (empty($user_email)) {
+      $user_email = 'test@example.com';
+    }
+    
+    try {
+      // Send the test webform event using the service method
+      $success = $this->bentoService->sendTestWebformEvent($user_email);
+      
+      if ($success) {
+        self::incrementTestEmailRateLimit();
+        return new JsonResponse([
+          'success' => true,
+          'message' => 'Test webform event queued successfully!',
+        ]);
+      } else {
+        // Get the detailed error from the BentoService
+        $last_error = $this->bentoService->getLastError();
+        
+        return new JsonResponse([
+          'success' => false,
+          'message' => 'Failed to queue test webform event: ' . ($last_error ?: 'Unknown error'),
         ]);
       }
       

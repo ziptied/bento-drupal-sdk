@@ -28,3 +28,22 @@ retry:
   base_delay: 60           # Base delay in seconds (1 minute)
   max_delay: 300           # Maximum delay in seconds (5 minutes)
   dead_letter_retention: 2592000  # Dead letter queue retention in seconds (30 days)
+# Commerce integration settings
+commerce_integration:
+  enabled: false
+  event_types:
+    cart_created: true
+    cart_updated: true
+    purchase: true
+    order_paid: true
+    order_fulfilled: true
+    order_cancelled: true
+    cart_abandoned: true
+  cart_abandonment:
+    threshold_hours: 24
+    check_interval: 60
+  data_enrichment:
+    include_product_details: true
+    include_customer_context: true
+    include_order_context: true
+    include_product_images: false

@@ -727,16 +727,6 @@ class BentoSettingsForm extends ConfigFormBase {
         'id' => 'test-webform-button',
       ],
       '#weight' => 1,
-      '#ajax' => [
-        'callback' => '::sendTestWebformEventCallback',
-        'wrapper' => 'test-webform-messages',
-        'method' => 'replace',
-        'effect' => 'fade',
-        'progress' => [
-          'type' => 'throbber',
-          'message' => $this->t('Sending test webform event...'),
-        ],
-      ],
     ];
 
     // Add messages container
@@ -745,6 +735,12 @@ class BentoSettingsForm extends ConfigFormBase {
       '#markup' => '<div id="test-webform-messages"></div>',
       '#weight' => 2,
     ];
+
+    // Attach JavaScript library for test webform functionality
+    $form['webform_settings']['test_webform_section']['#attached']['library'][] = 'bento_sdk/test-webform';
+
+    // Commerce Integration Settings - Add comprehensive configuration UI
+    $this->addCommerceIntegrationSection($form, $config);
 
     // Attach AJAX library to ensure AJAX functionality works
     $form['#attached']['library'][] = 'core/drupal.ajax';
@@ -836,6 +832,32 @@ class BentoSettingsForm extends ConfigFormBase {
       }
     }
 
+    // Validate Commerce integration settings.
+    $commerce_enabled = $form_state->getValue('enabled');
+    if ($commerce_enabled && !\Drupal::moduleHandler()->moduleExists('commerce')) {
+      $form_state->setErrorByName('enabled', $this->t('Commerce integration cannot be enabled because the Commerce module is not installed.'));
+    }
+
+    // Validate cart abandonment settings if Commerce integration is enabled.
+    if ($commerce_enabled) {
+      $threshold_hours = $form_state->getValue(['cart_abandonment', 'threshold_hours']);
+      if ($threshold_hours !== NULL && ($threshold_hours < 1 || $threshold_hours > 720)) {
+        $form_state->setErrorByName('cart_abandonment][threshold_hours', 
+          $this->t('Cart abandonment threshold must be between 1 and 720 hours (30 days).'));
+      }
+      
+      $check_interval = $form_state->getValue(['cart_abandonment', 'check_interval']);
+      if ($check_interval !== NULL && ($check_interval < 15 || $check_interval > 1440)) {
+        $form_state->setErrorByName('cart_abandonment][check_interval', 
+          $this->t('Check interval must be between 15 and 1440 minutes (24 hours).'));
+      }
+
+      $batch_size = $form_state->getValue(['cart_abandonment', 'batch_size']);
+      if ($batch_size !== NULL && ($batch_size < 10 || $batch_size > 500)) {
+        $form_state->setErrorByName('cart_abandonment][batch_size', 
+          $this->t('Batch size must be between 10 and 500 carts.'));
+      }
+    }
 
   }
 
@@ -936,6 +958,47 @@ class BentoSettingsForm extends ConfigFormBase {
           $config->set($field, $new_value);
         }
       }
+
+      // Track Commerce integration setting changes.
+      $commerce_enabled_old = $config->get('commerce_integration.enabled');
+      $commerce_enabled_new = $form_state->getValue('enabled');
+      if ($commerce_enabled_old !== $commerce_enabled_new) {
+        $changes[] = 'commerce_integration.enabled';
+        $config->set('commerce_integration.enabled', $commerce_enabled_new);
+      }
+
+      // Track Commerce event type changes.
+      $event_types = ['cart_created', 'cart_updated', 'purchase', 'order_paid', 'order_fulfilled', 'order_cancelled', 'cart_abandoned'];
+      foreach ($event_types as $event_type) {
+        $old_value = $config->get("commerce_integration.event_types.{$event_type}");
+        $new_value = $form_state->getValue($event_type);
+        if ($old_value !== $new_value) {
+          $changes[] = "commerce_integration.event_types.{$event_type}";
+          $config->set("commerce_integration.event_types.{$event_type}", $new_value);
+        }
+      }
+
+          // Track cart abandonment setting changes.
+    $cart_abandonment_fields = ['threshold_hours', 'check_interval', 'batch_size'];
+    foreach ($cart_abandonment_fields as $field) {
+      $old_value = $config->get("commerce_integration.cart_abandonment.{$field}");
+      $new_value = $form_state->getValue(['cart_abandonment', $field]);
+      if ($old_value !== $new_value) {
+        $changes[] = "commerce_integration.cart_abandonment.{$field}";
+        $config->set("commerce_integration.cart_abandonment.{$field}", $new_value);
+      }
+    }
+
+      // Track data enrichment setting changes.
+      $enrichment_fields = ['include_product_details', 'include_customer_context', 'include_order_context', 'include_product_images'];
+      foreach ($enrichment_fields as $field) {
+        $old_value = $config->get("commerce_integration.data_enrichment.{$field}");
+        $new_value = $form_state->getValue($field);
+        if ($old_value !== $new_value) {
+          $changes[] = "commerce_integration.data_enrichment.{$field}";
+          $config->set("commerce_integration.data_enrichment.{$field}", $new_value);
+        }
+      }
     }
     
     $config->save();
@@ -946,6 +1009,284 @@ class BentoSettingsForm extends ConfigFormBase {
     }
 
     parent::submitForm($form, $form_state);
+  }
+
+  /**
+   * Add Commerce integration section to the form.
+   *
+   * Creates a comprehensive configuration interface for Commerce integration
+   * with individual event toggles, cart abandonment settings, data enrichment
+   * options, and testing functionality.
+   *
+   * @param array $form
+   *   The form array to modify.
+   * @param \Drupal\Core\Config\Config $config
+   *   The configuration object.
+   */
+  private function addCommerceIntegrationSection(array &$form, $config): void {
+    $commerce_available = \Drupal::moduleHandler()->moduleExists('commerce');
+    $can_edit_performance = $this->hasPerformanceEditAccess();
+    
+    $form['commerce_integration'] = [
+      '#type' => 'details',
+      '#title' => $this->t('Drupal Commerce Integration'),
+      '#description' => $commerce_available 
+        ? $this->t('Configure automatic tracking of Commerce events.')
+        : $this->t('Drupal Commerce module is not installed. Install Commerce to enable eCommerce tracking.'),
+      '#open' => $config->get('commerce_integration.enabled') ?? FALSE,
+      '#access' => TRUE, // Always show section for visibility
+    ];
+
+    if (!$commerce_available) {
+      $form['commerce_integration']['commerce_not_available'] = [
+        '#type' => 'markup',
+        '#markup' => '<div class="messages messages--warning">' . 
+          $this->t('The Drupal Commerce module is not installed. Please install and enable Commerce to use eCommerce event tracking features.') . 
+          '</div>',
+      ];
+      return;
+    }
+
+    if (!$can_edit_performance) {
+      $form['commerce_integration']['#description'] .= ' ' . $this->t('<strong>Note:</strong> You do not have permission to modify Commerce settings.');
+    }
+
+    // Main integration toggle
+    $form['commerce_integration']['enabled'] = [
+      '#type' => 'checkbox',
+      '#title' => $this->t('Enable Commerce Integration'),
+      '#default_value' => $config->get('commerce_integration.enabled') ?? FALSE,
+      '#description' => $this->t('Automatically track Commerce events and send them to Bento.'),
+      '#disabled' => !$can_edit_performance,
+    ];
+
+    // Event type toggles
+    $form['commerce_integration']['event_types'] = [
+      '#type' => 'details',
+      '#title' => $this->t('Event Types'),
+      '#description' => $this->t('Choose which Commerce events to track and send to Bento.'),
+      '#open' => TRUE,
+      '#states' => [
+        'visible' => [
+          ':input[name="enabled"]' => ['checked' => TRUE],
+        ],
+      ],
+    ];
+
+    $event_types = [
+      'cart_created' => [
+        'title' => $this->t('Cart Created'),
+        'description' => $this->t('Track when customers create new carts by adding their first item.'),
+      ],
+      'cart_updated' => [
+        'title' => $this->t('Cart Updated'),
+        'description' => $this->t('Track when customers add, remove, or modify items in their cart.'),
+      ],
+      'purchase' => [
+        'title' => $this->t('Purchase'),
+        'description' => $this->t('Track when customers complete their order placement.'),
+      ],
+      'order_paid' => [
+        'title' => $this->t('Order Paid'),
+        'description' => $this->t('Track when payment is successfully completed for an order.'),
+      ],
+      'order_fulfilled' => [
+        'title' => $this->t('Order Fulfilled'),
+        'description' => $this->t('Track when orders are marked as fulfilled/shipped.'),
+      ],
+      'order_cancelled' => [
+        'title' => $this->t('Order Cancelled'),
+        'description' => $this->t('Track when orders are cancelled.'),
+      ],
+      'cart_abandoned' => [
+        'title' => $this->t('Cart Abandoned'),
+        'description' => $this->t('Track when carts are abandoned after a period of inactivity.'),
+      ],
+    ];
+
+    foreach ($event_types as $event_key => $event_info) {
+      $form['commerce_integration']['event_types'][$event_key] = [
+        '#type' => 'checkbox',
+        '#title' => $event_info['title'],
+        '#default_value' => $config->get("commerce_integration.event_types.{$event_key}") ?? TRUE,
+        '#description' => $event_info['description'],
+        '#disabled' => !$can_edit_performance,
+      ];
+    }
+
+    // Cart abandonment settings
+    $form['commerce_integration']['cart_abandonment'] = [
+      '#type' => 'details',
+      '#title' => $this->t('Cart Abandonment Settings'),
+      '#description' => $this->t('Configure how cart abandonment is detected and tracked.'),
+      '#open' => FALSE,
+      '#states' => [
+        'visible' => [
+          ':input[name="enabled"]' => ['checked' => TRUE],
+          ':input[name="cart_abandoned"]' => ['checked' => TRUE],
+        ],
+      ],
+    ];
+
+    $form['commerce_integration']['cart_abandonment']['threshold_hours'] = [
+      '#type' => 'number',
+      '#title' => $this->t('Abandonment Threshold (hours)'),
+      '#default_value' => $config->get('commerce_integration.cart_abandonment.threshold_hours') ?? 24,
+      '#description' => $this->t('Number of hours of inactivity before a cart is considered abandoned.'),
+      '#min' => 1,
+      '#max' => 720, // 30 days
+      '#step' => 1,
+      '#disabled' => !$can_edit_performance,
+    ];
+
+    $form['commerce_integration']['cart_abandonment']['check_interval'] = [
+      '#type' => 'number',
+      '#title' => $this->t('Check Interval (minutes)'),
+      '#default_value' => $config->get('commerce_integration.cart_abandonment.check_interval') ?? 60,
+      '#description' => $this->t('How often to check for abandoned carts during cron runs.'),
+      '#min' => 15,
+      '#max' => 1440, // 24 hours
+      '#step' => 15,
+      '#disabled' => !$can_edit_performance,
+    ];
+
+    $form['commerce_integration']['cart_abandonment']['batch_size'] = [
+      '#type' => 'number',
+      '#title' => $this->t('Batch Size'),
+      '#default_value' => $config->get('commerce_integration.cart_abandonment.batch_size') ?? 50,
+      '#description' => $this->t('Number of abandoned carts to process in each batch. Larger batches improve performance but may use more memory.'),
+      '#min' => 10,
+      '#max' => 500,
+      '#step' => 10,
+      '#disabled' => !$can_edit_performance,
+    ];
+
+    // Data enrichment settings
+    $form['commerce_integration']['data_enrichment'] = [
+      '#type' => 'details',
+      '#title' => $this->t('Data Enrichment'),
+      '#description' => $this->t('Configure what additional data to include with Commerce events.'),
+      '#open' => FALSE,
+      '#states' => [
+        'visible' => [
+          ':input[name="enabled"]' => ['checked' => TRUE],
+        ],
+      ],
+    ];
+
+    $enrichment_options = [
+      'include_product_details' => [
+        'title' => $this->t('Include Product Details'),
+        'description' => $this->t('Include detailed product information (categories, attributes, images).'),
+      ],
+      'include_customer_context' => [
+        'title' => $this->t('Include Customer Context'),
+        'description' => $this->t('Include customer lifetime value, order history, and demographics.'),
+      ],
+      'include_order_context' => [
+        'title' => $this->t('Include Order Context'),
+        'description' => $this->t('Include shipping, payment, and discount information.'),
+      ],
+      'include_product_images' => [
+        'title' => $this->t('Include Product Images'),
+        'description' => $this->t('Include product image URLs (may increase event size).'),
+      ],
+    ];
+
+    foreach ($enrichment_options as $option_key => $option_info) {
+      $default_value = $config->get("commerce_integration.data_enrichment.{$option_key}");
+      if ($default_value === NULL) {
+        $default_value = $option_key !== 'include_product_images'; // Default to true except for images
+      }
+
+      $form['commerce_integration']['data_enrichment'][$option_key] = [
+        '#type' => 'checkbox',
+        '#title' => $option_info['title'],
+        '#default_value' => $default_value,
+        '#description' => $option_info['description'],
+        '#disabled' => !$can_edit_performance,
+      ];
+    }
+
+    // Integration status
+    $form['commerce_integration']['status'] = [
+      '#type' => 'details',
+      '#title' => $this->t('Integration Status'),
+      '#description' => $this->t('Current status of your Commerce integration.'),
+      '#open' => FALSE,
+    ];
+
+    $this->addCommerceIntegrationStatus($form['commerce_integration']['status'], $config);
+  }
+
+  /**
+   * Add Commerce integration status information.
+   *
+   * Displays current status indicators for Commerce integration including
+   * module availability, configuration status, and queue health.
+   *
+   * @param array $form
+   *   The form section to add status to.
+   * @param \Drupal\Core\Config\Config $config
+   *   The configuration object.
+   */
+  private function addCommerceIntegrationStatus(array &$form, $config): void {
+    $status_items = [];
+    
+    // Check if Commerce is available
+    $commerce_available = \Drupal::moduleHandler()->moduleExists('commerce');
+    $status_items[] = [
+      'status' => $commerce_available ? 'success' : 'error',
+      'message' => $commerce_available 
+        ? $this->t('Drupal Commerce module is installed')
+        : $this->t('Drupal Commerce module is not installed'),
+    ];
+
+    // Check if integration is enabled
+    $integration_enabled = $config->get('commerce_integration.enabled');
+    $status_items[] = [
+      'status' => $integration_enabled ? 'success' : 'warning',
+      'message' => $integration_enabled 
+        ? $this->t('Commerce integration is enabled')
+        : $this->t('Commerce integration is disabled'),
+    ];
+
+    // Check if Bento is configured
+    $bento_configured = $this->isConfigured();
+    $status_items[] = [
+      'status' => $bento_configured ? 'success' : 'error',
+      'message' => $bento_configured 
+        ? $this->t('Bento SDK is properly configured')
+        : $this->t('Bento SDK is not configured'),
+    ];
+
+    // Add CSS for status indicators
+    $form['#attached']['html_head'][] = [
+      [
+        '#tag' => 'style',
+        '#value' => '
+          .status-success { color: #28a745; font-weight: bold; }
+          .status-warning { color: #ffc107; font-weight: bold; }
+          .status-error { color: #dc3545; font-weight: bold; }
+          .commerce-integration-section {
+            border: 1px solid #ddd;
+            padding: 1rem;
+            margin: 1rem 0;
+            border-radius: 4px;
+          }
+        ',
+      ],
+      'bento-sdk-commerce-integration-styles'
+    ];
+
+    $form['status_list'] = [
+      '#theme' => 'item_list',
+      '#items' => array_map(function($item) {
+        return [
+          '#markup' => '<span class="status-' . $item['status'] . '">• ' . $item['message'] . '</span>',
+        ];
+      }, $status_items),
+    ];
   }
 
   /**
@@ -1883,8 +2224,6 @@ class BentoSettingsForm extends ConfigFormBase {
 
       return $base_data;
     }
-
-
 
     /**
      * Increments the test email counter for rate limiting.

@@ -32,7 +32,7 @@ function bento_sdk_help($route_name, RouteMatchInterface $route_match) {
 /**
  * Implements hook_cron().
  *
- * Processes scheduled retry items for Bento events.
+ * Processes scheduled retry items for Bento events and abandoned carts.
  */
 function bento_sdk_cron() {
   // Process scheduled retries for Bento events
@@ -44,6 +44,19 @@ function bento_sdk_cron() {
     \Drupal::logger('bento_sdk')->error('Failed to process scheduled retries during cron: @message', [
       '@message' => $e->getMessage(),
     ]);
+  }
+
+  // Process abandoned carts (only if Commerce is enabled)
+  if (\Drupal::moduleHandler()->moduleExists('commerce')) {
+    try {
+      $abandonment_service = \Drupal::service('bento_sdk.cart_abandonment');
+      $abandonment_service->processAbandonedCarts();
+    }
+    catch (\Exception $e) {
+      \Drupal::logger('bento_sdk')->error('Failed to process abandoned carts during cron: @message', [
+        '@message' => $e->getMessage(),
+      ]);
+    }
   }
 }
 
