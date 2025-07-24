@@ -48,9 +48,19 @@ class CommerceDataEnricher {
     $this->logger = $logger;
 
     // Check if Commerce module is available
-    if (!class_exists('\Drupal\commerce_order\Entity\OrderInterface')) {
+    if (!$this->isCommerceModuleAvailable()) {
       $this->logger->warning('Commerce module not available - CommerceDataEnricher will not function properly');
     }
+  }
+
+  /**
+   * Check if the Commerce module is available.
+   *
+   * @return bool
+   *   TRUE if Commerce module is available, FALSE otherwise.
+   */
+  private function isCommerceModuleAvailable(): bool {
+    return class_exists('\Drupal\commerce_order\Entity\OrderInterface');
   }
 
   /**
@@ -67,7 +77,7 @@ class CommerceDataEnricher {
    */
   public function enrichOrderItems(array $items): array {
     // Check if Commerce is available
-    if (!class_exists('\Drupal\commerce_order\Entity\OrderInterface')) {
+    if (!$this->isCommerceModuleAvailable()) {
       return [];
     }
 
@@ -380,7 +390,7 @@ class CommerceDataEnricher {
    */
   public function enrichCustomerContext($order): array {
     // Check if Commerce is available
-    if (!class_exists('\Drupal\commerce_order\Entity\OrderInterface')) {
+    if (!$this->isCommerceModuleAvailable()) {
       return [];
     }
     $customer_context = [];
@@ -419,7 +429,7 @@ class CommerceDataEnricher {
    */
   public function enrichOrderContext($order): array {
     // Check if Commerce is available
-    if (!class_exists('\Drupal\commerce_order\Entity\OrderInterface')) {
+    if (!$this->isCommerceModuleAvailable()) {
       return [];
     }
     $order_context = [
@@ -568,21 +578,36 @@ class CommerceDataEnricher {
    *   The customer's lifetime value or NULL if no completed orders.
    */
   private function getCustomerLifetimeValue($customer): ?float {
-    // Use the database API to sum the total price of completed orders for the customer.
-    $connection = \Drupal::database();
-    $query = $connection->select('commerce_order', 'o')
-      ->fields('o', [])
-      ->condition('o.uid', $customer->id())
-      ->condition('o.state', 'completed');
-    // The total price is stored in the commerce_order table as a serialized field (total_price),
-    // so we need to extract the numeric value. We'll sum the numeric part of the total_price field.
-    // This assumes the total_price field is a serialized array with a 'number' key.
-    $query->addExpression("SUM(CAST(JSON_UNQUOTE(JSON_EXTRACT(o.total_price, '$.number')) AS DECIMAL(20, 8)))", 'total');
-    $result = $query->execute()->fetchField();
-    if ($result !== FALSE && $result !== NULL) {
-      return (float) $result;
+    // Check if Commerce is available
+    if (!$this->isCommerceModuleAvailable()) {
+      return NULL;
     }
-    return NULL;
+
+    $order_storage = $this->entityTypeManager->getStorage('commerce_order');
+    $query = $order_storage->getQuery()
+      ->condition('uid', $customer->id())
+      ->condition('state', 'completed')
+      ->accessCheck(FALSE);
+
+    $order_ids = $query->execute();
+    if (empty($order_ids)) {
+      return NULL;
+    }
+
+    // Load all completed orders for the customer
+    $orders = $order_storage->loadMultiple($order_ids);
+    
+    $total_value = 0.0;
+    foreach ($orders as $order) {
+      if ($order instanceof \Drupal\commerce_order\Entity\OrderInterface) {
+        $total_price = $order->getTotalPrice();
+        if ($total_price && method_exists($total_price, 'getNumber')) {
+          $total_value += $total_price->getNumber();
+        }
+      }
+    }
+
+    return $total_value > 0 ? $total_value : NULL;
   }
 
   /**

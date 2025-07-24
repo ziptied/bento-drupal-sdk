@@ -182,10 +182,31 @@ class CartAbandonmentService {
       return;
     }
 
-    $threshold_timestamp = time() - ($threshold_hours * 3600);
+    // Check if enough time has passed since the last run
+    $last_run_timestamp = $this->state->get('bento_sdk.cart_abandonment.last_run', 0);
+    $current_time = time();
+    $check_interval_seconds = $check_interval * 60; // Convert minutes to seconds
+    
+    if (($current_time - $last_run_timestamp) < $check_interval_seconds) {
+      $this->logger->debug('Cart abandonment processing skipped: Check interval not yet elapsed. Last run: @last_run, Current time: @current_time, Required interval: @interval_seconds seconds', [
+        '@last_run' => $last_run_timestamp,
+        '@current_time' => $current_time,
+        '@interval_seconds' => $check_interval_seconds,
+      ]);
+      return;
+    }
+
+    $threshold_timestamp = $current_time - ($threshold_hours * 3600);
     $batch_size = $config->get('commerce_integration.cart_abandonment.batch_size') ?? self::DEFAULT_BATCH_SIZE;
 
+    // Process abandoned carts
     $this->processAbandonedCartsBatch($threshold_timestamp, $batch_size);
+    
+    // Update the last run timestamp after successful processing
+    $this->state->set('bento_sdk.cart_abandonment.last_run', $current_time);
+    $this->logger->debug('Cart abandonment processing completed. Updated last run timestamp to: @timestamp', [
+      '@timestamp' => $current_time,
+    ]);
   }
 
   /**
