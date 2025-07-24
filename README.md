@@ -22,6 +22,7 @@ Table of contents
     * [Transactional Email](#transactional-email)
     * [Email Validation](#email-validation)
     * [Tag & Field Management](#tag--field-management)
+* [Events Queue and Processing](#events-queue-and-processing)
 * [Things to Know](#things-to-know)
 * [Support](#support)
 * [Contributing](#contributing)
@@ -173,6 +174,135 @@ $bento->subscribeUser('user@example.com');
 $bento->unsubscribeUser('user@example.com');
 $bento->changeEmail('old@example.com', 'new@example.com');
 ```
+
+---
+
+## Events Queue and Processing
+
+The Bento SDK uses an asynchronous event processing system that queues events for background processing, ensuring optimal page load performance and reliable event delivery.
+
+### How It Works
+
+When you send events using the Bento SDK, they are automatically queued for background processing rather than being sent immediately. This approach provides several benefits:
+
+- **Non-blocking Performance**: Page loads are not delayed by API calls to Bento
+- **Reliability**: Events are persisted in the queue and will be processed even if there are temporary network issues
+- **Automatic Retries**: Failed events are automatically retried with exponential backoff
+- **Error Handling**: Permanently failed events are moved to a dead letter queue for investigation
+
+### Queue Processing
+
+Events are processed by Drupal's cron system using the `BentoEventProcessor` queue worker:
+
+```php
+// Events are automatically queued when you call sendEvent()
+$bento = \Drupal::service('bento.sdk');
+$bento->sendEvent([
+  'type' => 'user_registration',
+  'email' => 'user@example.com',
+  'fields' => ['first_name' => 'John'],
+]);
+// Event is queued immediately and processed in the background
+```
+
+### Retry Mechanism
+
+The SDK implements intelligent retry logic with exponential backoff:
+
+- **Attempt 1**: Retry after 1 minute
+- **Attempt 2**: Retry after 2 minutes  
+- **Attempt 3**: Retry after 4 minutes
+- **After 3 attempts**: Move to dead letter queue
+
+The retry system distinguishes between temporary failures (network timeouts, rate limiting) and permanent failures (invalid data, authentication errors):
+
+- **Retryable Errors**: Network timeouts, connection issues, rate limiting (429 errors), server errors (5xx)
+- **Permanent Errors**: Invalid data, malformed requests, authentication failures, bad requests (4xx except 429)
+
+### Configuration
+
+Queue and retry settings can be configured in your `bento_sdk.settings.yml`:
+
+```yaml
+retry:
+  max_attempts: 3           # Maximum retry attempts (default: 3)
+  base_delay: 60           # Base delay in seconds (default: 60)
+  max_delay: 300           # Maximum delay in seconds (default: 300)
+  dead_letter_retention: 2592000  # Dead letter retention (default: 30 days)
+```
+
+### Monitoring and Management
+
+#### Queue Statistics
+
+You can monitor queue performance programmatically:
+
+```php
+$queue_manager = \Drupal::service('bento_sdk.queue_manager');
+$retry_manager = \Drupal::service('bento_sdk.retry_manager');
+
+// Get current queue size
+$queue_size = $queue_manager->getQueueSize();
+
+// Get retry statistics
+$retry_stats = $retry_manager->getRetryStats();
+// Returns: ['scheduled_retries' => 5, 'dead_letter_queue_size' => 2, 'max_attempts' => 3]
+```
+
+#### Processing Scheduled Retries
+
+Scheduled retries are automatically processed during cron runs, but you can also trigger processing manually:
+
+```php
+$retry_manager = \Drupal::service('bento_sdk.retry_manager');
+$retry_manager->processScheduledRetries();
+```
+
+#### Dead Letter Queue Management
+
+Events that fail permanently are moved to a dead letter queue for investigation:
+
+```php
+// Check dead letter queue size
+$dlq_size = $retry_manager->getRetryStats()['dead_letter_queue_size'];
+
+// Items in the dead letter queue include:
+// - Original event data
+// - Error messages from all attempts
+// - Timestamps and attempt counts
+// - Final error that caused permanent failure
+```
+
+### Performance Considerations
+
+- **Cron Frequency**: Ensure Drupal cron runs regularly (every 1-5 minutes) for timely event processing
+- **Queue Size**: Monitor queue size during high-traffic periods to ensure events are processed promptly
+- **Memory Usage**: Large event payloads are limited to 1MB to prevent memory issues
+- **Batch Processing**: The queue worker processes events individually but can handle high volumes efficiently
+
+### Troubleshooting
+
+#### Common Issues
+
+1. **Events Not Processing**: Check that Drupal cron is running regularly
+2. **High Queue Size**: Increase cron frequency or check for API connectivity issues
+3. **Dead Letter Queue Growth**: Review error logs and check API credentials/configuration
+4. **Memory Issues**: Reduce event payload size or increase PHP memory limits
+
+#### Debugging
+
+Enable detailed logging to troubleshoot queue issues:
+
+```php
+// Check recent queue activity in Drupal logs
+// Look for messages from 'bento_sdk' channel
+```
+
+The queue system logs detailed information about:
+- Event queuing and processing
+- Retry attempts and delays
+- Dead letter queue movements
+- Performance metrics and timing
 
 ---
 
