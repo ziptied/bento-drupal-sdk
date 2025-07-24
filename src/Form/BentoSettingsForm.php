@@ -560,51 +560,7 @@ class BentoSettingsForm extends ConfigFormBase {
       ],
     ];
 
-    $form['security_settings'] = [
-      '#type' => 'fieldset',
-      '#title' => $this->t('Security Settings'),
-      '#description' => $this->t('Configure SSL verification, timeouts, and security headers for API requests.'),
-    ];
 
-    if (!$can_edit_performance) {
-      $form['security_settings']['#description'] .= ' ' . $this->t('<strong>Note:</strong> You do not have permission to modify security settings.');
-    }
-
-    $form['security_settings']['ssl_verification'] = [
-      '#type' => 'checkbox',
-      '#title' => $this->t('Enable SSL certificate verification'),
-      '#description' => $this->t('Verify SSL certificates for API requests. Disable only for development environments with self-signed certificates.'),
-      '#default_value' => $config->get('ssl_verification') ?? TRUE,
-      '#disabled' => !$can_edit_performance,
-    ];
-
-    $form['security_settings']['request_timeout'] = [
-      '#type' => 'number',
-      '#title' => $this->t('Request timeout (seconds)'),
-      '#description' => $this->t('Maximum time to wait for API responses. Default: 30 seconds.'),
-      '#default_value' => $config->get('request_timeout') ?: 30,
-      '#min' => 5,
-      '#max' => 300,
-      '#disabled' => !$can_edit_performance,
-    ];
-
-    $form['security_settings']['connection_timeout'] = [
-      '#type' => 'number',
-      '#title' => $this->t('Connection timeout (seconds)'),
-      '#description' => $this->t('Maximum time to wait for initial connection. Default: 10 seconds.'),
-      '#default_value' => $config->get('connection_timeout') ?: 10,
-      '#min' => 1,
-      '#max' => 60,
-      '#disabled' => !$can_edit_performance,
-    ];
-
-    $form['security_settings']['enable_request_id_tracking'] = [
-      '#type' => 'checkbox',
-      '#title' => $this->t('Enable request ID tracking'),
-      '#description' => $this->t('Add unique request IDs to API calls for audit trails and debugging.'),
-      '#default_value' => $config->get('enable_request_id_tracking') ?? TRUE,
-      '#disabled' => !$can_edit_performance,
-    ];
 
     // Webform Integration Settings
     $form['webform_settings'] = [
