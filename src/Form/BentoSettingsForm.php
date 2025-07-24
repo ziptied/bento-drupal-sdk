@@ -411,53 +411,7 @@ class BentoSettingsForm extends ConfigFormBase {
       }
     }
 
-    $form['validation_settings'] = [
-      '#type' => 'fieldset',
-      '#title' => $this->t('Email Validation Settings'),
-      '#description' => $this->t('Configure email validation using Bento\'s experimental validation API.'),
-    ];
 
-    if (!$can_edit_validation) {
-      $form['validation_settings']['#description'] .= ' ' . $this->t('<strong>Note:</strong> You do not have permission to modify validation settings.');
-    }
-
-    $form['validation_settings']['enable_email_validation'] = [
-      '#type' => 'checkbox',
-      '#title' => $this->t('Enable email validation'),
-      '#description' => $this->t('When enabled, emails will be validated using Bento\'s API before processing. Note: This uses an experimental API endpoint.'),
-      '#default_value' => $config->get('enable_email_validation'),
-      '#disabled' => !$can_edit_validation,
-    ];
-
-    $form['validation_settings']['email_validation_cache_valid_duration'] = [
-      '#type' => 'number',
-      '#title' => $this->t('Cache duration for valid emails (seconds)'),
-      '#description' => $this->t('How long to cache valid email validation results. Default: 86400 (24 hours).'),
-      '#default_value' => $config->get('email_validation_cache_valid_duration') ?: 86400,
-      '#min' => 300,
-      '#max' => 604800,
-      '#disabled' => !$can_edit_validation,
-      '#states' => [
-        'visible' => [
-          ':input[name="enable_email_validation"]' => ['checked' => TRUE],
-        ],
-      ],
-    ];
-
-    $form['validation_settings']['email_validation_cache_invalid_duration'] = [
-      '#type' => 'number',
-      '#title' => $this->t('Cache duration for invalid emails (seconds)'),
-      '#description' => $this->t('How long to cache invalid email validation results. Default: 3600 (1 hour).'),
-      '#default_value' => $config->get('email_validation_cache_invalid_duration') ?: 3600,
-      '#min' => 300,
-      '#max' => 86400,
-      '#disabled' => !$can_edit_validation,
-      '#states' => [
-        'visible' => [
-          ':input[name="enable_email_validation"]' => ['checked' => TRUE],
-        ],
-      ],
-    ];
 
 
 
