@@ -1146,16 +1146,13 @@ class BentoSettingsForm extends ConfigFormBase {
         'title' => $this->t('Include Order Context'),
         'description' => $this->t('Include shipping, payment, and discount information.'),
       ],
-      'include_product_images' => [
-        'title' => $this->t('Include Product Images'),
-        'description' => $this->t('Include product image URLs (may increase event size).'),
-      ],
+
     ];
 
     foreach ($enrichment_options as $option_key => $option_info) {
       $default_value = $config->get("commerce_integration.data_enrichment.{$option_key}");
       if ($default_value === NULL) {
-        $default_value = $option_key !== 'include_product_images'; // Default to true except for images
+        $default_value = TRUE; // All remaining options default to true
       }
 
       $form['commerce_integration']['data_enrichment'][$option_key] = [
