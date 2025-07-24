@@ -357,9 +357,10 @@ class BentoSettingsForm extends ConfigFormBase {
 
     // Test Events section - for admin testing of event queueing
     $form['test_events'] = [
-      '#type' => 'fieldset',
+      '#type' => 'details',
       '#title' => $this->t('Test Events'),
       '#description' => $this->t('Queue sample events for testing Bento integration. Only administrators can access this section.'),
+      '#open' => FALSE,
       '#access' => $this->hasTestEventsAccess(),
     ];
 
