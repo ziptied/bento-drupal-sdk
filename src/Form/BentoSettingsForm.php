@@ -190,9 +190,10 @@ class BentoSettingsForm extends ConfigFormBase {
     ];
 
     $form['mail_settings'] = [
-      '#type' => 'fieldset',
+      '#type' => 'details',
       '#title' => $this->t('Mail Settings'),
       '#description' => $this->t('Configure how Drupal emails are handled through Bento.'),
+      '#open' => FALSE,
     ];
 
     if (!$can_edit_mail) {
