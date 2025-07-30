@@ -748,71 +748,6 @@ $enabled = $config->get('enable_webform_integration');
 - **Error Handling**: Failed events are retried automatically with exponential backoff
 - **Logging**: All webform processing is logged for monitoring and debugging
 
-### Troubleshooting
-
-#### Common Issues
-
-1. **Events Not Being Created**:
-   - Check that webform integration is enabled in settings
-   - Verify Bento SDK is properly configured with API credentials
-   - Ensure webforms contain valid email fields
-
-2. **Missing Email Addresses**:
-   - Add an email field to your webform using standard field names
-   - Supported field names: `email`, `mail`, `email_address`, `user_email`
-   - Check Drupal logs for "no valid email found" warnings
-
-3. **Event Type Issues**:
-   - Webform machine names are automatically sanitized
-   - Special characters are converted to underscores
-   - Event types always start with `$` prefix
-
-#### Debugging
-
-```php
-// Check webform integration status
-$bento = \Drupal::service('bento.sdk');
-$is_configured = $bento->isConfigured();
-$config = \Drupal::config('bento_sdk.settings');
-$integration_enabled = $config->get('enable_webform_integration');
-
-// Monitor webform processing in logs
-// Look for 'bento_sdk' channel messages in Drupal logs
-
-// Test email extraction manually
-$form_data = ['email' => 'test@example.com', 'name' => 'Test User'];
-$email = $bento->extractEmail($form_data); // Private method - for reference only
-```
-
-The webform integration provides a powerful way to automatically capture lead information and customer interactions, feeding them directly into your Bento marketing automation workflows.
-
----
-
-## Things to Know
-
-- **Email Delivery:** You can route all your site's emails through Bento, or stick with Drupal's default. If Bento is unavailable, emails will still be sent using Drupal's regular system—so you never miss a message.
-- **Security**: Secret keys are stored securely. For best security, use environment variables.
-- **Error Handling**: All errors are logged to Drupal’s log system. Sensitive data is sanitized.
-- **Rate Limiting**: The SDK respects Bento API rate limits and uses chunked batch operations.
-- **Fallbacks**: If Bento mail fails, Drupal’s default mail system is used automatically.
-- **Permissions**: Only users with the right permissions can edit credentials or settings.
-
-## Support
-
-- [Bento Docs](https://docs.bentonow.com)
-- [Discord Community](https://discord.gg/ssXXFRmt5F)
-- Email: jesse@bentonow.com
-- For bugs and feature requests, use the project’s issue queue.
-
-## Contributing
-
-We welcome contributions! Please see our [contributing guidelines](CODE_OF_CONDUCT.md) for details on how to submit pull requests, report issues, and suggest improvements.
-
-## License
-
-The Bento SDK for Drupal is available as open source under the terms of the [GPL-2.0-or-later license](LICENSE).
-
----
 
 ## Drupal Commerce Integration
 
@@ -831,7 +766,7 @@ The integration tracks the following e-commerce events:
 - **`$cart_updated`** - Triggered when items are added, updated, or removed from existing carts
 - **`$cart_abandoned`** - Triggered when carts remain inactive beyond the configured threshold
 
-#### Order Events  
+#### Order Events
 - **`$purchase`** - Triggered when an order is placed
 - **`$order_paid`** - Triggered when payment is successfully processed
 - **`$order_fulfilled`** - Triggered when order status changes to fulfilled
@@ -1110,3 +1045,69 @@ $cart_events_enabled = $config->get('commerce_integration.event_types.cart_creat
 ```
 
 The Commerce integration provides a powerful foundation for e-commerce marketing automation, capturing detailed customer behavior and purchase data for targeted campaigns and personalized customer experiences.
+
+### Troubleshooting
+
+#### Common Issues
+
+1. **Events Not Being Created**:
+   - Check that webform integration is enabled in settings
+   - Verify Bento SDK is properly configured with API credentials
+   - Ensure webforms contain valid email fields
+
+2. **Missing Email Addresses**:
+   - Add an email field to your webform using standard field names
+   - Supported field names: `email`, `mail`, `email_address`, `user_email`
+   - Check Drupal logs for "no valid email found" warnings
+
+3. **Event Type Issues**:
+   - Webform machine names are automatically sanitized
+   - Special characters are converted to underscores
+   - Event types always start with `$` prefix
+
+#### Debugging
+
+```php
+// Check webform integration status
+$bento = \Drupal::service('bento.sdk');
+$is_configured = $bento->isConfigured();
+$config = \Drupal::config('bento_sdk.settings');
+$integration_enabled = $config->get('enable_webform_integration');
+
+// Monitor webform processing in logs
+// Look for 'bento_sdk' channel messages in Drupal logs
+
+// Test email extraction manually
+$form_data = ['email' => 'test@example.com', 'name' => 'Test User'];
+$email = $bento->extractEmail($form_data); // Private method - for reference only
+```
+
+The webform integration provides a powerful way to automatically capture lead information and customer interactions, feeding them directly into your Bento marketing automation workflows.
+
+---
+
+## Things to Know
+
+- **Email Delivery:** You can route all your site's emails through Bento, or stick with Drupal's default. If Bento is unavailable, emails will still be sent using Drupal's regular system—so you never miss a message.
+- **Security**: Secret keys are stored securely. For best security, use environment variables.
+- **Error Handling**: All errors are logged to Drupal’s log system. Sensitive data is sanitized.
+- **Rate Limiting**: The SDK respects Bento API rate limits and uses chunked batch operations.
+- **Fallbacks**: If Bento mail fails, Drupal’s default mail system is used automatically.
+- **Permissions**: Only users with the right permissions can edit credentials or settings.
+
+## Support
+
+- [Bento Docs](https://docs.bentonow.com)
+- [Discord Community](https://discord.gg/ssXXFRmt5F)
+- Email: jesse@bentonow.com
+- For bugs and feature requests, use the project’s issue queue.
+
+## Contributing
+
+We welcome contributions! Please see our [contributing guidelines](CODE_OF_CONDUCT.md) for details on how to submit pull requests, report issues, and suggest improvements.
+
+## License
+
+The Bento SDK for Drupal is available as open source under the terms of the [GPL-2.0-or-later license](LICENSE).
+
+---
