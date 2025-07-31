@@ -59,11 +59,25 @@ Table of contents
 4. Go to **Extend** and enable "Bento SDK".
 
 #### Option 2: Composer (Recommended for developers)
-1. In your Drupal root, run:
+1. Add the package to your project's composer.json file:
+   ```json
+   {
+      "repositories": [
+         {
+            "type": "vcs",
+            "url": "https://github.com/bentonow/bento-drupal-sdk"
+         }
+      ],
+      "require": {
+         "drupal/bento_sdk": "dev-main"
+      }
+   }
+   ```
+2. In your Drupal root, run:
    ```bash
    composer require bentonow/bento-drupal-sdk
    ```
-2. Enable the module via the admin UI or with Drush:
+3. Enable the module via the admin UI or with Drush:
    ```bash
    drush en bento_sdk
    ```
