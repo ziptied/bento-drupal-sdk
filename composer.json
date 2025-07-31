@@ -28,8 +28,8 @@
   },
   "extra": {
     "drupal": {
-      "version": "1.0.0-dev",
-      "datestamp": "1642694400"
+      "version": "0.8.1",
+      "datestamp": "1753922267"
     }
   },
   "minimum-stability": "dev",
